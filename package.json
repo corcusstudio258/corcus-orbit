@@ -1,0 +1,19 @@
+{
+  "name": "corcus-orbit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Orbit \u2014 multi-level task management with roles, client portal and WhatsApp alerts",
+  "scripts": {
+    "install:all": "npm --prefix server install && npm --prefix client install",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix server install --omit=dev && npm --prefix client install --include=dev && npm --prefix client run build",
+    "start": "node server/src/index.js",
+    "seed:demo": "npm --prefix server run seed:demo",
+    "test": "node server/test/smoke.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "server/src/index.js"
+}
