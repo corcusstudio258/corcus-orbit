@@ -29,12 +29,14 @@ const DEFAULTS = {
       templateLang: 'en',
     },
     corcus: {
-      // chat.corcus.in (com.bot white-label). Paste the values from the panel's API settings.
-      baseUrl: 'https://chat.corcus.in',
-      path: '/api/v1/whatsapp/send',
+      // chat.corcus.in (com.bot white-label): Channels → WhatsApp → ⋮ → Access Token shows these values.
+      baseUrl: 'https://crmapi.1automations.com/api/meta',
+      apiVersion: 'v19.0',
       token: '',
       phoneNumberId: '',
-      bodyTemplate: '{"phone_number_id":"{{phoneNumberId}}","phone":"{{phone}}","message":"{{message}}"}',
+      mode: 'template', // template | text
+      templateName: 'task_update',
+      templateLang: 'en',
     },
     custom: {
       url: '',

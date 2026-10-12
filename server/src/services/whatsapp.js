@@ -3,6 +3,7 @@
  *  - log    : nothing is sent, messages are written to the WhatsApp log (safe default / testing)
  *  - meta   : official WhatsApp Cloud API (graph.facebook.com). Use "template" mode for
  *             business-initiated messages; "text" only works inside a 24h customer-service window.
+ *  - corcus : chat.corcus.in, a Cloud API proxy (same request shape, different base URL)
  *  - custom : any HTTP API (e.g. your own WhatsApp panel / BSP). URL, headers and body are templates
  *             where {{phone}} and {{message}} are replaced.
  */
@@ -20,14 +21,15 @@ function normalizePhone(raw, cc = '91') {
 
 const jsonEscape = (s) => JSON.stringify(String(s)).slice(1, -1);
 
-async function sendMeta(cfg, phone, message) {
-  const { token, phoneNumberId, apiVersion, mode, templateName, templateLang } = cfg.meta;
-  if (!token || !phoneNumberId) throw new Error('Meta token or phone number ID is missing');
-  const url = `https://graph.facebook.com/${apiVersion || 'v21.0'}/${phoneNumberId}/messages`;
+/** WhatsApp Cloud API call. base is graph.facebook.com, or a Meta-compatible proxy such as chat.corcus.in's. */
+async function sendCloud({ base, token, phoneNumberId, apiVersion, mode, templateName, templateLang }, phone, message, label) {
+  if (!token || !phoneNumberId) throw new Error(`${label}: access token or phone number ID is missing`);
+  if (mode !== 'text' && !templateName) throw new Error(`${label}: template name is missing`);
+  const url = `${String(base).replace(/\/$/, '')}/${apiVersion || 'v21.0'}/${phoneNumberId}/messages`;
   const body = mode === 'text'
-    ? { messaging_product: 'whatsapp', to: phone, type: 'text', text: { body: message, preview_url: true } }
+    ? { messaging_product: 'whatsapp', recipient_type: 'individual', to: phone, type: 'text', text: { body: message, preview_url: true } }
     : {
-      messaging_product: 'whatsapp', to: phone, type: 'template',
+      messaging_product: 'whatsapp', recipient_type: 'individual', to: phone, type: 'template',
       template: {
         name: templateName, language: { code: templateLang || 'en' },
         // Template variables can't contain new lines or tabs, so flatten the message.
@@ -36,13 +38,17 @@ async function sendMeta(cfg, phone, message) {
     };
   const r = await fetch(url, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
   });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data?.error?.message || `Meta API returned ${r.status}`);
+  const text = await r.text();
+  let data = {}; try { data = JSON.parse(text); } catch { /* not JSON */ }
+  const err = data?.error?.error_user_msg || data?.error?.message || data?.message;
+  if (!r.ok || data?.error || data?.success === false) throw new Error(err || `${label} returned ${r.status}: ${text.slice(0, 200)}`);
   return data;
 }
+
+const sendMeta = (cfg, phone, message) => sendCloud({ base: 'https://graph.facebook.com', ...cfg.meta }, phone, message, 'WhatsApp Cloud API');
 
 async function sendCustom(cfg, phone, message) {
   const { url, method, headers, bodyTemplate } = cfg.custom;
@@ -59,17 +65,17 @@ async function sendCustom(cfg, phone, message) {
   return text;
 }
 
-async function sendCorcus(cfg, phone, message) {
-  const c = cfg.corcus || {};
-  if (!c.token) throw new Error('chat.corcus.in API token is missing');
-  const url = `${String(c.baseUrl || 'https://chat.corcus.in').replace(/\/$/, '')}${c.path?.startsWith('/') ? c.path : `/${c.path || ''}`}`;
-  const body = String(c.bodyTemplate || '{"phone":"{{phone}}","message":"{{message}}"}')
-    .replaceAll('{{phone}}', phone).replaceAll('{{message}}', jsonEscape(message)).replaceAll('{{phoneNumberId}}', jsonEscape(c.phoneNumberId || ''));
-  const r = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${c.token}`, 'Content-Type': 'application/json', Accept: 'application/json' }, body });
-  const text = await r.text();
-  if (!r.ok) throw new Error(`chat.corcus.in returned ${r.status}: ${text.slice(0, 200)}`);
-  return text;
+/** chat.corcus.in (com.bot white-label) exposes the Cloud API through its own proxy. */
+function corcusBase(c) {
+  let base = String(c.baseUrl || '').trim().replace(/\/$/, '');
+  if (!base || /chat\.corcus\.in/.test(base)) base = 'https://crmapi.1automations.com/api/meta';
+  if (!/\/api\/meta$/.test(base) && /1automations\.com$/.test(base)) base += '/api/meta';
+  return base;
 }
+const sendCorcus = (cfg, phone, message) => {
+  const c = cfg.corcus || {};
+  return sendCloud({ ...c, base: corcusBase(c) }, phone, message, 'chat.corcus.in');
+};
 
 /** Send one message. Never throws — returns 'sent' | 'failed' | 'skipped' | 'logged'. */
 async function send(rawPhone, message, { force = false } = {}) {

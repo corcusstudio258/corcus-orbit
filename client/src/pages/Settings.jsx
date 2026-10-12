@@ -316,14 +316,22 @@ function WhatsApp({ initial }) {
         )}
         {f.provider === 'corcus' && (
           <div className="space-y-4 rounded-xl border border-leaf/30 bg-leaf/5 p-4">
-            <p className="text-xs text-muted">Sends through your chat.corcus.in panel. In the panel, open API or Developer settings, create an API token, and copy the send-message endpoint and your WhatsApp number ID. Placeholders: {'{{phone}}'}, {'{{message}}'}, {'{{phoneNumberId}}'}.</p>
+            <p className="text-xs text-muted">In chat.corcus.in open <b>Channels → WhatsApp</b>, click <b>⋮</b> on your number and choose <b>Access Token</b>. Copy the token, API URL, API version and Phone number ID from there. The token is shown only once, so paste it here straight away.</p>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Panel URL"><input className="input" value={f.corcus?.baseUrl || ''} onChange={set('corcus.baseUrl')} placeholder="https://chat.corcus.in" /></Field>
-              <Field label="Send endpoint"><input className="input font-mono text-xs" value={f.corcus?.path || ''} onChange={set('corcus.path')} placeholder="/api/v1/whatsapp/send" /></Field>
-              <Field label="API token" className="sm:col-span-2"><PasswordInput value={f.corcus?.token || ''} onChange={set('corcus.token')} autoComplete="off" /></Field>
-              <Field label="WhatsApp number ID" hint="If your panel asks for one"><input className="input" value={f.corcus?.phoneNumberId || ''} onChange={set('corcus.phoneNumberId')} /></Field>
+              <Field label="API URL"><input className="input font-mono text-xs" value={f.corcus?.baseUrl || ''} onChange={set('corcus.baseUrl')} placeholder="https://crmapi.1automations.com/api/meta" /></Field>
+              <Field label="API version"><input className="input" value={f.corcus?.apiVersion || ''} onChange={set('corcus.apiVersion')} placeholder="v19.0" /></Field>
+              <Field label="Access token" className="sm:col-span-2"><PasswordInput value={f.corcus?.token || ''} onChange={set('corcus.token')} autoComplete="off" /></Field>
+              <Field label="Phone number ID" hint="The long ID, not the phone number itself"><input className="input" value={f.corcus?.phoneNumberId || ''} onChange={set('corcus.phoneNumberId')} placeholder="1277701765431660" /></Field>
             </div>
-            <Field label="Request body (JSON)" hint="Match the field names from your panel's API docs."><textarea className="input font-mono text-xs" rows={3} value={f.corcus?.bodyTemplate || ''} onChange={set('corcus.bodyTemplate')} /></Field>
+            <Field label="Message type" hint="Messages Orbit starts need an approved template with one body variable {{1}}. Plain text only reaches people who messaged your number in the last 24 hours.">
+              <Segmented value={f.corcus?.mode || 'template'} onChange={set('corcus.mode')} options={[{ value: 'template', label: 'Approved template' }, { value: 'text', label: 'Plain text' }]} />
+            </Field>
+            {(f.corcus?.mode || 'template') === 'template' && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Template name" hint="Exactly as approved in the panel"><input className="input" value={f.corcus?.templateName || ''} onChange={set('corcus.templateName')} /></Field>
+                <Field label="Template language"><input className="input" value={f.corcus?.templateLang || ''} onChange={set('corcus.templateLang')} placeholder="en" /></Field>
+              </div>
+            )}
           </div>
         )}
         {f.provider === 'custom' && (
