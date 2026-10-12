@@ -118,7 +118,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await wait(300);
   ok((await call(rahul, 'GET', '/notifications')).data.items.some((n) => /invited you/.test(n.title)), 'attendee notified');
   ok((await call(rahul, 'POST', `/meetings/${mt.data.id}/rsvp`, { response: 'maybe' })).status === 200, 'rsvp');
-  const ai1 = await call(mgr, 'POST', `/meetings/${mt.data.id}/action-items`, { items: [{ title: 'Book studio', assigneeIds: [id('Rahul')] }] });
+  const ai1 = await call(mgr, 'POST', `/meetings/${mt.data.id}/action-items`, { items: [{ title: 'Book studio', assigneeIds: [id('Rahul')] }], projectId: 1 });
   ok(ai1.data.created?.length === 1, 'action items become tasks');
   const myMeet = (await call(rahul, 'GET', '/meetings')).data;
   ok(myMeet.some((m) => m.title === 'Clinic shoot planning') && myMeet.some((m) => m.title === 'Daily stand-up'), 'my meetings list');

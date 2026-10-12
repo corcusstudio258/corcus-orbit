@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 import { addMinutes, format, isSameDay, isToday, isTomorrow, startOfMonth } from 'date-fns';
-import { Plus, Video, MapPin, CalendarDays, List, Clock, Sparkles, Check, Trash2, Pencil, ExternalLink, X, Users } from 'lucide-react';
+import { Plus, Video, MapPin, CalendarDays, List, Clock, Sparkles, Check, Trash2, Pencil, ExternalLink, X, Users, Mail } from 'lucide-react';
 import api from '../lib/api';
 import useFetch from '../lib/useFetch';
 import { useAuth, useLive } from '../context/AuthContext';
@@ -21,28 +21,31 @@ export function MeetingForm({ open, onClose, meeting, defaults = {}, onSaved }) 
   const { data: clients } = useFetch(open ? '/clients' : null);
   const blank = () => {
     const s = new Date(); s.setMinutes(s.getMinutes() < 30 ? 30 : 60, 0, 0);
-    return { title: '', agenda: '', startAt: toLocalInput(s), duration: 30, link: '', location: '', projectId: '', clientId: '', inviteClient: false, attendeeIds: [], ...defaults };
+    return { title: '', agenda: '', startAt: toLocalInput(s), duration: 30, link: '', location: '', projectId: '', clientId: '', inviteClient: false, attendeeIds: [], guestEmails: '', provider: 'link', sendEmail: true, ...defaults };
   };
   const [f, setF] = useState(blank);
   const [busy, setBusy] = useState(false);
+  const { data: integ } = useFetch(open ? '/meetings/integrations/status' : null);
+  useEffect(() => { if (open && !meeting && integ?.zoom) setF((s) => ({ ...s, provider: s.link ? s.provider : 'zoom' })); }, [integ?.zoom, open]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!open) return;
-    if (meeting) setF({ ...meeting, startAt: toLocalInput(meeting.startAt), duration: Math.round((new Date(meeting.endAt) - new Date(meeting.startAt)) / 60000), projectId: meeting.projectId || '', clientId: meeting.clientId || '', attendeeIds: meeting.attendees.map((a) => a.id) });
+    if (meeting) setF({ ...meeting, guestEmails: (meeting.guestEmails || []).join(', '), provider: meeting.provider || 'link', startAt: toLocalInput(meeting.startAt), duration: Math.round((new Date(meeting.endAt) - new Date(meeting.startAt)) / 60000), projectId: meeting.projectId || '', clientId: meeting.clientId || '', attendeeIds: meeting.attendees.map((a) => a.id) });
     else setF(blank());
   }, [open, meeting]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k) => (e) => setF((s) => ({ ...s, [k]: e?.target ? (e.target.type === 'checkbox' ? e.target.checked : e.target.value) : e }));
   const save = async () => {
     setBusy(true);
     const start = new Date(f.startAt);
-    const body = { ...f, startAt: start.toISOString(), endAt: addMinutes(start, Number(f.duration) || 30).toISOString(), projectId: f.projectId || null, clientId: f.clientId || null };
+    const body = { ...f, startAt: start.toISOString(), endAt: addMinutes(start, Number(f.duration) || 30).toISOString(), projectId: f.projectId || null, clientId: f.clientId || null,
+      guestEmails: String(f.guestEmails || '').split(/[,;\s]+/).filter(Boolean), link: f.provider === 'zoom' ? undefined : f.link };
     try {
       const r = meeting ? await api.patch(`/meetings/${meeting.id}`, body) : await api.post('/meetings', body);
-      toast.success(meeting ? 'Meeting updated' : 'Invites sent'); onSaved?.(r.data); onClose();
+      toast.success(meeting ? 'Meeting updated' : r.data.emailed?.sent ? `Invites sent, ${r.data.emailed.sent} emailed` : 'Meeting scheduled'); onSaved?.(r.data); onClose();
     } catch (err) { toast.error(err.message); } finally { setBusy(false); }
   };
   return (
     <Modal open={open} onClose={onClose} title={meeting ? 'Edit meeting' : 'Schedule a meeting'} width="max-w-2xl"
-      footer={<><button type="button" className="btn-ghost" onClick={onClose}>Cancel</button><button type="button" className="btn-primary" disabled={busy} onClick={save}>{busy && <Spinner size={14} className="text-ink" />}{meeting ? 'Save' : 'Schedule and invite'}</button></>}>
+      footer={<><button type="button" className="btn-ghost" onClick={onClose}>Cancel</button><button type="button" className="btn-primary" disabled={busy || (f.provider === 'zoom' && !integ?.zoom)} onClick={save}>{busy && <Spinner size={14} className="text-ink" />}{meeting ? 'Save' : 'Schedule and invite'}</button></>}>
       <div className="space-y-4">
         <Field label="Title"><input className="input" value={f.title} onChange={set('title')} placeholder="Kasaar monthly review" autoFocus /></Field>
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_160px]">
@@ -50,10 +53,22 @@ export function MeetingForm({ open, onClose, meeting, defaults = {}, onSaved }) 
           <Field label="Length"><select className="input" value={f.duration} onChange={set('duration')}>{[15, 30, 45, 60, 90, 120].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60} hr${m > 60 ? 's' : ''}`}</option>)}</select></Field>
         </div>
         <Field label="People"><UserPicker users={people} value={f.attendeeIds} onChange={set('attendeeIds')} /></Field>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Video link" hint="Google Meet, Zoom or Teams"><input className="input" value={f.link || ''} onChange={set('link')} placeholder="https://meet.google.com/..." /></Field>
-          <Field label="Or a place"><input className="input" value={f.location || ''} onChange={set('location')} placeholder="Studio, client office" /></Field>
-        </div>
+        <Field label="Guests by email" hint="Clients or anyone outside the team. They get an email invite with a calendar file."><input className="input" value={f.guestEmails} onChange={set('guestEmails')} placeholder="rohit@kasaar.in, priya@agency.com" /></Field>
+        <Field label="Where">
+          <Segmented value={f.provider === 'zoom' ? 'zoom' : f.location && !f.link ? 'place' : 'link'} onChange={(v) => setF((s) => ({ ...s, provider: v === 'zoom' ? 'zoom' : 'link', ...(v === 'place' ? { link: '' } : {}) }))}
+            options={[{ value: 'zoom', label: integ?.zoom ? 'Zoom (auto)' : 'Zoom (set up first)' }, { value: 'link', label: 'Meet or other link' }, { value: 'place', label: 'In person' }]} />
+        </Field>
+        {f.provider === 'zoom' ? (
+          integ?.zoom ? <p className="flex items-center gap-2 rounded-xl bg-cobalt/5 px-3 py-2 text-sm text-cobalt"><Video size={15} />{meeting?.zoomId ? 'Zoom meeting linked. Time changes sync to Zoom.' : 'A Zoom meeting is created when you save, and the join link goes into every invite.'}</p>
+            : <p className="rounded-xl bg-amber/10 px-3 py-2 text-sm text-amber">Zoom isn't connected yet. An admin can add it in Settings, Integrations.</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Video link" hint="Google Meet, Teams or any link"><input className="input" value={f.link || ''} onChange={set('link')} placeholder="https://meet.google.com/..." /></Field>
+            <Field label="Place"><input className="input" value={f.location || ''} onChange={set('location')} placeholder="Studio, client office" /></Field>
+          </div>
+        )}
+        {integ?.email ? <Toggle checked={f.sendEmail !== false} onChange={set('sendEmail')} label="Email invites with a calendar file" hint="Team members and guests get it in their inbox. WhatsApp and in-app alerts go out either way." />
+          : <p className="text-xs text-muted">Email isn't set up, so guests won't get an email. Team members still get WhatsApp and in-app invites.</p>}
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Project"><select className="input" value={f.projectId} onChange={set('projectId')}><option value="">None</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.code} {p.name}</option>)}</select></Field>
           <Field label="Client"><select className="input" value={f.clientId} onChange={set('clientId')}><option value="">None</option>{(clients || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
@@ -75,6 +90,7 @@ function MeetingDrawer({ id, onClose, onEdit }) {
   const [busy, setBusy] = useState(false);
   const [items, setItems] = useState([]);
   useEffect(() => { if (m?.id) { setNotes(m.notes || ''); setItems((m.aiSummary?.actionItems || []).map((a) => ({ ...a, pick: true }))); } }, [m?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [taskProject, setTaskProject] = useState('');
   if (!id) return null;
   const mine = m?.attendees?.find((a) => a.id === user.id);
   const rsvp = async (response) => { await api.post(`/meetings/${id}/rsvp`, { response }); reload(); };
@@ -86,7 +102,8 @@ function MeetingDrawer({ id, onClose, onEdit }) {
   const makeTasks = async () => {
     const chosen = items.filter((i) => i.pick && i.title);
     if (!chosen.length) return;
-    try { const r = await api.post(`/meetings/${id}/action-items`, { items: chosen, projectId: m.projectId }); toast.success(`Created ${r.data.created.length} tasks`); setItems((xs) => xs.map((x) => ({ ...x, pick: false, created: x.pick || x.created }))); } catch (err) { toast.error(err.message); }
+    if (!m.projectId && !taskProject) { toast.error('Pick the project these tasks go into.'); return; }
+    try { const r = await api.post(`/meetings/${id}/action-items`, { items: chosen, projectId: m.projectId || Number(taskProject) }); toast.success(`Created ${r.data.created.length} tasks`); setItems((xs) => xs.map((x) => ({ ...x, pick: false, created: x.pick || x.created }))); } catch (err) { toast.error(err.message); }
   };
   const cancel = async () => { if (await confirm({ title: `Cancel "${m.title}"?`, body: 'Everyone invited gets told.', danger: true, confirmLabel: 'Cancel meeting' })) { await api.delete(`/meetings/${id}`); onClose(); } };
 
@@ -107,8 +124,11 @@ function MeetingDrawer({ id, onClose, onEdit }) {
               <h2 className="text-2xl font-semibold">{m.title}</h2>
               <p className="mt-1 flex items-center gap-2 text-sm text-muted"><Clock size={14} />{format(new Date(m.startAt), 'EEEE d MMMM, h:mm a')} to {format(new Date(m.endAt), 'h:mm a')}</p>
               {m.location && <p className="mt-1 flex items-center gap-2 text-sm text-muted"><MapPin size={14} />{m.location}</p>}
+              {m.zoomPassword && <p className="mt-1 text-sm text-muted">Zoom passcode <b className="font-mono text-ink">{m.zoomPassword}</b></p>}
+              {m.guestEmails?.length > 0 && <p className="mt-1 text-sm text-muted">Guests: {m.guestEmails.join(', ')}</p>}
               <div className="mt-4 flex flex-wrap gap-2">
-                {m.link && <a href={m.link} target="_blank" rel="noreferrer" className="btn-primary"><Video size={15} />Join call</a>}
+                {m.link && <a href={m.link} target="_blank" rel="noreferrer" className="btn-primary"><Video size={15} />{m.provider === 'zoom' ? 'Join Zoom' : 'Join call'}</a>}
+                {m.canEdit && <button type="button" className="btn-ghost" onClick={async () => { try { const r = await api.post(`/meetings/${id}/email`); toast.success(`Emailed ${r.data.sent} people`); } catch (err) { toast.error(err.message); } }}><Mail size={15} />Email invite</button>}
                 {mine && ['yes', 'maybe', 'no'].map((r) => <button key={r} type="button" onClick={() => rsvp(r)} className={clsx('btn btn-sm', mine.MeetingAttendee?.response === r ? 'bg-ink text-surface' : 'btn-ghost')}>{RSVP[r].label}</button>)}
               </div>
             </div>
@@ -153,6 +173,7 @@ function MeetingDrawer({ id, onClose, onEdit }) {
                         </li>
                       ))}
                     </ul>
+                    {can('tasks.create') && !m.projectId && <select className="input mt-3" value={taskProject} onChange={(e) => setTaskProject(e.target.value)}><option value="" disabled>Project for these tasks</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.code} {p.name}</option>)}</select>}
                     {can('tasks.create') && <button type="button" className="btn-primary mt-3" onClick={makeTasks} disabled={!items.some((i) => i.pick)}><Check size={15} />Create {items.filter((i) => i.pick).length} tasks{m.projectId ? ` in ${projects.find((p) => p.id === m.projectId)?.code || 'project'}` : ''}</button>}
                   </>
                 )}

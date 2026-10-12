@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Check, ChevronDown, Search, Flag, CalendarClock, Loader2 } from 'lucide-react';
+import { X, Check, ChevronDown, Search, Flag, CalendarClock, Loader2, Eye, EyeOff } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import clsx from 'clsx';
@@ -364,3 +364,27 @@ export function ConfirmHost() {
 }
 
 export function Kbd({ children }) { return <kbd className="kbd">{children}</kbd>; }
+
+/** Password field with a show/hide eye and an optional strength meter. */
+export function PasswordInput({ value, onChange, strength, className, ...rest }) {
+  const [show, setShow] = useState(false);
+  const score = !value ? 0 : [value.length >= 8, value.length >= 12, /[A-Z]/.test(value) && /[a-z]/.test(value), /\d/.test(value), /[^\w\s]/.test(value)].filter(Boolean).length;
+  const label = ['', 'Weak', 'Weak', 'Okay', 'Good', 'Strong'][score];
+  const color = ['', '#E5484D', '#E5484D', '#C76A00', '#1FA971', '#1FA971'][score];
+  return (
+    <div>
+      <div className="relative">
+        <input {...rest} type={show ? 'text' : 'password'} value={value} onChange={onChange} className={clsx('input pr-10', className)} />
+        <button type="button" onClick={() => setShow((v) => !v)} className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-muted hover:bg-sunken hover:text-ink" aria-label={show ? 'Hide password' : 'Show password'} title={show ? 'Hide password' : 'Show password'}>
+          {show ? <EyeOff size={16} /> : <Eye size={16} />}
+        </button>
+      </div>
+      {strength && value && (
+        <div className="mt-1.5 flex items-center gap-2">
+          <div className="flex flex-1 gap-1">{[1, 2, 3, 4, 5].map((i) => <span key={i} className="h-1 flex-1 rounded-full transition" style={{ background: i <= score ? color : 'rgb(var(--c-line))' }} />)}</div>
+          <span className="w-12 text-right text-[11px] font-semibold" style={{ color }}>{label}</span>
+        </div>
+      )}
+    </div>
+  );
+}

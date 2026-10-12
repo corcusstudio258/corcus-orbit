@@ -59,6 +59,18 @@ async function sendCustom(cfg, phone, message) {
   return text;
 }
 
+async function sendCorcus(cfg, phone, message) {
+  const c = cfg.corcus || {};
+  if (!c.token) throw new Error('chat.corcus.in API token is missing');
+  const url = `${String(c.baseUrl || 'https://chat.corcus.in').replace(/\/$/, '')}${c.path?.startsWith('/') ? c.path : `/${c.path || ''}`}`;
+  const body = String(c.bodyTemplate || '{"phone":"{{phone}}","message":"{{message}}"}')
+    .replaceAll('{{phone}}', phone).replaceAll('{{message}}', jsonEscape(message)).replaceAll('{{phoneNumberId}}', jsonEscape(c.phoneNumberId || ''));
+  const r = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${c.token}`, 'Content-Type': 'application/json', Accept: 'application/json' }, body });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`chat.corcus.in returned ${r.status}: ${text.slice(0, 200)}`);
+  return text;
+}
+
 /** Send one message. Never throws — returns 'sent' | 'failed' | 'skipped' | 'logged'. */
 async function send(rawPhone, message, { force = false } = {}) {
   const cfg = await settings.get('whatsapp');
@@ -69,6 +81,7 @@ async function send(rawPhone, message, { force = false } = {}) {
   try {
     if (provider === 'meta') await sendMeta(cfg, phone, message);
     else if (provider === 'custom') await sendCustom(cfg, phone, message);
+    else if (provider === 'corcus') await sendCorcus(cfg, phone, message);
     await WhatsAppLog.create({ to: phone, message, status: provider === 'log' ? 'logged' : 'sent', provider });
     return provider === 'log' ? 'logged' : 'sent';
   } catch (e) {

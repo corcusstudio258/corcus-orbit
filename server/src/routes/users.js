@@ -80,6 +80,36 @@ router.post('/', requirePerm('users.manage'), async (req, res) => {
   res.status(201).json(await User.findByPk(user.id, { include: [Role] }));
 });
 
+// Invite by email (Firebase / SMTP) and WhatsApp. The person sets their own password.
+router.post('/invite', requirePerm('users.invite', 'users.manage'), async (req, res) => {
+  const { name, email, phone, designation, department, roleId, reportsToId, color } = req.body;
+  if (!name || !email) return res.status(400).json({ error: 'Name and email are required.' });
+  const role = await Role.findByPk(roleId);
+  const err = canAssignRole(req, role);
+  if (err) return res.status(400).json({ error: err });
+  const clean = email.toLowerCase().trim();
+  if (await User.findOne({ where: { email: clean } })) return res.status(400).json({ error: 'Someone already uses this email.' });
+  const user = await User.create({
+    name, email: clean, phone, designation, department, roleId, reportsToId: reportsToId || null, color: color || '#3D5AFE',
+    isActive: false, passwordHash: await bcrypt.hash(require('crypto').randomBytes(24).toString('hex'), 10),
+  });
+  const sent = await require('../services/invites').issue(req, user, 'invite');
+  res.status(201).json({ user: await User.findByPk(user.id, { include: [Role] }), ...sent });
+});
+
+router.post('/:id/invite', requirePerm('users.invite', 'users.manage'), async (req, res) => {
+  const user = await User.findByPk(req.params.id, { include: [Role] });
+  if (!user || user.Role?.isClientRole) return res.status(404).json({ error: 'Person not found.' });
+  if (user.isActive) return res.status(400).json({ error: `${user.name} has already joined. Send a password reset instead.` });
+  res.json(await require('../services/invites').issue(req, user, 'invite'));
+});
+
+router.post('/:id/reset-link', requirePerm('users.manage'), async (req, res) => {
+  const user = await User.findByPk(req.params.id);
+  if (!user) return res.status(404).json({ error: 'Person not found.' });
+  res.json(await require('../services/invites').issue(req, user, 'reset'));
+});
+
 router.patch('/:id', requirePerm('users.manage'), async (req, res) => {
   const user = await User.findByPk(req.params.id, { include: [Role] });
   if (!user || user.Role?.isClientRole) return res.status(404).json({ error: 'Person not found.' });

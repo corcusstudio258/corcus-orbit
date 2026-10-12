@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
-import { LogOut, Check, X, Send, Download, Paperclip, Inbox, Plus, Flag, ChevronRight, MessageCircle, Video, FileText, ArrowLeft } from 'lucide-react';
+import { LogOut, Check, X, Download, Paperclip, Inbox, Plus, Flag, ChevronRight, MessageCircle, Video, FileText, ArrowLeft, LayoutDashboard, Eye, Building2, Film, ImagePlus, FileUp } from 'lucide-react';
+import { ReviewBoard, CommentThread, toFormData } from '../components/Review';
+import OnboardingFields from '../components/OnboardingFields';
+import { celebrate, pointOf } from '../components/Celebrate';
 import { format } from 'date-fns';
-import api, { fileUrl } from '../lib/api';
+import api, { fileUrl, clientFileUrl } from '../lib/api';
 import useFetch from '../lib/useFetch';
 import { useAuth, useLive } from '../context/AuthContext';
 import { OrbitRing, Avatar, AvatarStack, StatusPill, DueBadge, PageLoader, Modal, Field, Bar, Empty, Markdown } from '../components/ui';
@@ -12,23 +15,48 @@ import { ago, fmtDate, bytes, STATUS, PRIORITY, PROJECT_STATUS } from '../lib/fo
 
 export function PortalLayout() {
   const { user, company, logout } = useAuth();
+  const { data: ov, reload } = useFetch('/portal/overview');
+  useLive(['task:changed', 'request:changed'], reload);
+  const client = ov?.client || user.Client || {};
+  const toReview = (ov?.reviewFiles?.length || 0) + (ov?.awaitingReview?.length || 0);
+  const nav = [
+    { to: '/portal', label: 'Overview', icon: LayoutDashboard, end: true },
+    { to: '/portal/review', label: 'Review', icon: Eye, badge: toReview },
+    { to: '/portal/requests', label: 'Requests', icon: Inbox, badge: ov?.openRequests },
+    { to: '/portal/profile', label: 'Business & files', icon: Building2 },
+  ];
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-30 border-b border-line bg-canvas/80 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-3 sm:px-6">
-          <Link to="/portal" className="flex items-center gap-2.5"><img src="/orbit.svg" alt="" className="h-8 w-8" /><span className="leading-tight"><span className="block font-display text-sm font-semibold">{company?.name}</span><span className="block text-[11px] text-muted">Client portal</span></span></Link>
-          <nav className="ml-4 flex gap-1">
-            <NavLink end to="/portal" className={({ isActive }) => clsx('tab', isActive && 'tab-active')}>Overview</NavLink>
-            <NavLink to="/portal/requests" className={({ isActive }) => clsx('tab', isActive && 'tab-active')}>Requests</NavLink>
+      <header className="sticky top-0 z-30 border-b border-line bg-canvas/85 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2.5 sm:px-6">
+          <Link to="/portal" className="flex min-w-0 items-center gap-2.5">
+            {client.logo ? <span className="grid h-9 w-9 place-items-center overflow-hidden rounded-xl border border-line bg-surface"><img src={clientFileUrl(client.logo, true)} alt="" className="h-full w-full object-contain p-1" /></span>
+              : <span className="grid h-9 w-9 place-items-center rounded-xl font-display font-semibold text-white" style={{ background: client.color || '#3D5AFE' }}>{(client.name || 'C')[0]}</span>}
+            <span className="min-w-0 leading-tight"><span className="block truncate font-display text-sm font-semibold">{client.name || 'Your portal'}</span><span className="block truncate text-[11px] text-muted">with {company?.name}</span></span>
+          </Link>
+          <nav className="ml-4 hidden gap-1 md:flex">
+            {nav.map((n) => (
+              <NavLink key={n.to} end={n.end} to={n.to} className={({ isActive }) => clsx('inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-semibold transition', isActive ? 'bg-ink text-surface' : 'text-muted hover:bg-sunken hover:text-ink')}>
+                <n.icon size={15} />{n.label}{n.badge > 0 && <span className="grid h-5 min-w-[20px] place-items-center rounded-full bg-brand px-1.5 text-[10px] font-bold text-brand-ink">{n.badge}</span>}
+              </NavLink>
+            ))}
           </nav>
-          <div className="ml-auto flex items-center gap-3">
-            <span className="hidden text-sm text-muted sm:block">{user.Client?.name}</span>
-            <Avatar user={user} size={30} />
-            <button type="button" onClick={logout} className="rounded-lg p-2 text-muted hover:text-ember" aria-label="Sign out"><LogOut size={17} /></button>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="hidden text-right text-xs leading-tight sm:block"><span className="block font-semibold">{user.name}</span><span className="text-muted">{user.email}</span></span>
+            <Avatar user={user} size={32} />
+            <button type="button" onClick={logout} className="rounded-lg p-2 text-muted hover:bg-sunken hover:text-ember" aria-label="Sign out" title="Sign out"><LogOut size={17} /></button>
           </div>
         </div>
+        <nav className="flex gap-1 overflow-x-auto border-t border-line/60 px-3 py-1.5 md:hidden">
+          {nav.map((n) => (
+            <NavLink key={n.to} end={n.end} to={n.to} className={({ isActive }) => clsx('inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold', isActive ? 'bg-ink text-surface' : 'text-muted')}>
+              <n.icon size={14} />{n.label}{n.badge > 0 && <span className="rounded-full bg-brand px-1.5 text-[10px] font-bold text-brand-ink">{n.badge}</span>}
+            </NavLink>
+          ))}
+        </nav>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6"><Outlet /></main>
+      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8"><Outlet /></main>
+      <footer className="mx-auto max-w-6xl px-6 pb-8 text-center text-xs text-faint">Powered by Orbit for {company?.name}</footer>
     </div>
   );
 }
@@ -37,7 +65,7 @@ function ReviewButtons({ task, onDone }) {
   const [mode, setMode] = useState(null);
   const [note, setNote] = useState('');
   const send = async () => {
-    try { await api.post(`/portal/tasks/${task.id}/review`, { decision: mode, note }); toast.success(mode === 'approve' ? 'Approved. The team has been told.' : 'Sent back to the team with your notes.'); setMode(null); setNote(''); onDone(); } catch (e) { toast.error(e.message); }
+    try { await api.post(`/portal/tasks/${task.id}/review`, { decision: mode, note }); if (mode === 'approve') celebrate('done'); else toast.success('Sent back to the team with your notes.'); setMode(null); setNote(''); onDone(); } catch (e) { toast.error(e.message); }
   };
   return (<>
     <div className="flex gap-2">
@@ -62,13 +90,30 @@ export function PortalHome() {
       <section className="relative flex flex-wrap items-center gap-8 overflow-hidden rounded-[26px] bg-night p-7 text-white sm:p-9">
         <div className="pointer-events-none absolute -right-20 -top-28 h-80 w-80 rounded-full border border-white/10" />
         <div className="pointer-events-none absolute -right-6 -top-14 h-52 w-52 rounded-full border border-white/10" />
-        <OrbitRing value={avg} size={132} stroke={8} sub="overall" dark color="#FFC21A" track="rgba(255,255,255,.12)" />
+        <div className="relative">
+          <OrbitRing value={avg} size={132} stroke={8} sub="overall" dark color="#FFC21A" track="rgba(255,255,255,.12)" />
+          {data.client?.logo && <span className="absolute -bottom-1 -right-1 grid h-12 w-12 place-items-center overflow-hidden rounded-2xl border-2 border-night bg-white"><img src={clientFileUrl(data.client.logo, true)} alt="" className="h-full w-full object-contain p-1" /></span>}
+        </div>
         <div className="relative max-w-xl">
           <h1 className="font-display text-3xl font-semibold text-white sm:text-4xl">Hello, {user.name.split(' ')[0]}</h1>
           <p className="mt-2 text-white/70">Here's where your work with us stands right now. Updates appear the moment the team moves something.</p>
           {data.awaitingReview.length > 0 && <p className="mt-4 inline-flex rounded-full bg-brand px-3 py-1 text-sm font-semibold text-brand-ink">{data.awaitingReview.length} item{data.awaitingReview.length > 1 ? 's are' : ' is'} waiting for your approval</p>}
         </div>
       </section>
+
+      {data.reviewFiles?.length > 0 && (
+        <section>
+          <div className="mb-3 flex items-center gap-2"><h2 className="text-lg font-semibold">Needs your eyes</h2><span className="chip bg-brand-soft text-ink">{data.reviewFiles.length} to review</span><Link to="/portal/review" className="link ml-auto text-sm">See all</Link></div>
+          <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
+            {data.reviewFiles.map((f) => (
+              <Link key={f.id} to={`/portal/tasks/${f.task.id}?tab=review`} className="group w-56 shrink-0 overflow-hidden rounded-2xl border border-line bg-surface transition hover:shadow-lift">
+                <div className="grid h-32 place-items-center overflow-hidden bg-sunken">{/^image\//.test(f.mime || '') ? <img src={fileUrl(f.id)} alt="" className="h-full w-full object-cover transition group-hover:scale-105" loading="lazy" /> : /^video\//.test(f.mime || '') ? <Film size={26} className="text-muted" /> : <FileText size={26} className="text-muted" />}</div>
+                <div className="p-3"><p className="truncate text-sm font-semibold">{f.task.title}</p><p className="truncate text-xs text-muted">{f.name}</p><p className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-cobalt">Review and comment<ChevronRight size={12} /></p></div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {data.meetings?.length > 0 && (
         <section className="panel p-5">
@@ -244,56 +289,58 @@ export function PortalProject() {
 export function PortalTask() {
   const { id } = useParams();
   const { data: t, loading, reload } = useFetch(`/portal/tasks/${id}`);
-  const [body, setBody] = useState('');
+  const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || null);
   useLive('task:changed', (d) => d?.id === Number(id) && reload(), [id]);
   if (loading || !t) return <PageLoader />;
   if (t.error) return <div className="panel p-10 text-center text-muted">{t.error}</div>;
-  const post = async (e) => {
-    e.preventDefault(); if (!body.trim()) return;
-    try { await api.post(`/portal/tasks/${t.id}/comments`, { body }); setBody(''); reload(); } catch (err) { toast.error(err.message); }
-  };
+  const reviewFiles = t.files.filter((f) => /^(image|video)\//.test(f.mime || '') || /pdf/.test(f.mime || ''));
+  const otherFiles = t.files.filter((f) => !reviewFiles.includes(f));
+  const active = tab || (reviewFiles.length ? 'review' : 'talk');
+  const post = async (fd) => { await api.post(`/portal/tasks/${t.id}/comments`, fd); reload(); };
+  const openNotes = t.comments.filter((c) => c.kind === 'review' && !c.resolved).length;
   return (
     <div className="space-y-6">
       <nav className="flex items-center gap-1 text-sm text-muted"><Link to="/portal" className="hover:text-ink">Overview</Link><ChevronRight size={13} /><Link to={`/portal/projects/${t.project.id}`} className="hover:text-ink">{t.project.name}</Link></nav>
-      <section className="panel p-6">
-        <div className="flex flex-wrap items-start gap-5">
-          <OrbitRing value={t.progress} size={88} color={STATUS[t.status].color} />
+      <section className="panel overflow-hidden">
+        <div className="h-1.5" style={{ background: t.project.color }} />
+        <div className="flex flex-wrap items-start gap-5 p-6">
+          <OrbitRing value={t.progress} size={80} color={STATUS[t.status].color} />
           <div className="min-w-0 flex-1">
-            <div className="mb-2 flex flex-wrap items-center gap-3"><StatusPill status={t.status} /><DueBadge date={t.dueDate} done={t.status === 'done'} /></div>
+            <div className="mb-2 flex flex-wrap items-center gap-3"><StatusPill status={t.status} /><DueBadge date={t.dueDate} done={t.status === 'done'} /><span className="text-xs text-muted">{t.key}</span></div>
             <h1 className="text-2xl font-semibold">{t.title}</h1>
             {t.description && <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-ink/85">{t.description}</p>}
             <div className="mt-4 flex items-center gap-2 text-sm text-muted"><AvatarStack users={t.assignees} />{t.assignees.length ? 'working on this' : ''}</div>
           </div>
-          {t.status === 'review' && <ReviewButtons task={t} onDone={reload} />}
+          {t.status === 'review' && <div className="w-full sm:w-auto"><p className="mb-2 text-xs font-semibold text-violet">Waiting for your sign-off</p><ReviewButtons task={t} onDone={reload} /></div>}
         </div>
         {t.subtasks.length > 0 && (
-          <div className="mt-6 border-t border-line pt-4">
+          <div className="border-t border-line px-6 py-4">
             <h2 className="mb-2 text-sm font-semibold text-muted">Steps</h2>
-            <ul className="space-y-1.5">{t.subtasks.map((s) => <li key={s.id} className="flex items-center gap-3 text-sm"><span className={clsx('grid h-4 w-4 place-items-center rounded border', s.status === 'done' ? 'border-leaf bg-leaf text-white' : 'border-line')}>{s.status === 'done' && <Check size={10} strokeWidth={3} />}</span><span className={clsx('flex-1', s.status === 'done' && 'text-muted line-through')}>{s.title}</span><span className="text-xs text-muted">{STATUS[s.status].label}</span></li>)}</ul>
-          </div>
-        )}
-        {t.files.length > 0 && (
-          <div className="mt-6 border-t border-line pt-4">
-            <h2 className="mb-2 text-sm font-semibold text-muted">Files</h2>
-            <ul className="space-y-1.5 text-sm">{t.files.map((f) => <li key={f.id}><a href={fileUrl(f.id)} className="inline-flex items-center gap-2 hover:text-cobalt"><Download size={14} />{f.name}<span className="text-xs text-muted">{bytes(f.size)}</span></a></li>)}</ul>
+            <ul className="grid gap-1.5 sm:grid-cols-2">{t.subtasks.map((st2) => <li key={st2.id} className="flex items-center gap-3 text-sm"><span className={clsx('grid h-4 w-4 place-items-center rounded border', st2.status === 'done' ? 'border-leaf bg-leaf text-white' : 'border-line')}>{st2.status === 'done' && <Check size={10} strokeWidth={3} />}</span><span className={clsx('flex-1', st2.status === 'done' && 'text-muted line-through')}>{st2.title}</span><span className="text-xs text-muted">{STATUS[st2.status].label}</span></li>)}</ul>
           </div>
         )}
       </section>
-      <section className="panel p-6">
-        <h2 className="mb-4 flex items-center gap-2 font-semibold"><MessageCircle size={17} className="text-cobalt" />Conversation with the team</h2>
-        <ul className="space-y-4">
-          {t.comments.map((c) => (
-            <li key={c.id} className={clsx('flex gap-3', c.author?.Role?.isClientRole && 'flex-row-reverse text-right')}>
-              <Avatar user={c.author} size={30} />
-              <div className={clsx('max-w-[80%] rounded-2xl px-4 py-2.5', c.author?.Role?.isClientRole ? 'bg-cobalt/10' : 'bg-sunken/50')}>
-                <div className="mb-0.5 text-xs text-muted"><span className="font-semibold text-ink">{c.author?.name}</span> {ago(c.createdAt)}</div>
-                <p className="whitespace-pre-wrap text-left text-sm">{c.body}</p>
-              </div>
-            </li>
-          ))}
-          {!t.comments.length && <li className="text-sm text-muted">Ask a question or share feedback. The team gets it right away.</li>}
-        </ul>
-        <form onSubmit={post} className="mt-5 flex gap-2"><input className="input" value={body} onChange={(e) => setBody(e.target.value)} placeholder="Write to the team" /><button className="btn-primary"><Send size={15} />Send</button></form>
+      <div className="flex gap-1">
+        {[['review', `Review the work${openNotes ? ` (${openNotes})` : ''}`, Eye], ['talk', 'Conversation', MessageCircle]].map(([k, l, I]) => (
+          <button key={k} type="button" onClick={() => setTab(k)} className={clsx('inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-semibold transition', active === k ? 'bg-ink text-surface' : 'text-muted hover:bg-sunken hover:text-ink')}><I size={15} />{l}</button>
+        ))}
+      </div>
+      <section className="panel p-5">
+        {active === 'review' ? (
+          <ReviewBoard isClient files={reviewFiles} comments={t.comments} post={post}
+            setStatus={async (f, status, e) => {
+              if (status === 'pending') return;
+              try { await api.post(`/portal/files/${f.id}/review`, { decision: status === 'approved' ? 'approve' : 'changes', note: status === 'changes' ? 'Please see my pinned comments.' : '' }); if (status === 'approved') celebrate('done', pointOf(e)); else toast.success('Sent to the team'); reload(); } catch (err) { toast.error(err.message); }
+            }} />
+        ) : (
+          <CommentThread comments={t.comments} onPost={async (v) => post(toFormData(v))} emptyText="Ask a question or share feedback. You can paste screenshots too. The team gets it right away." />
+        )}
+        {otherFiles.length > 0 && (
+          <div className="mt-6 border-t border-line pt-4">
+            <h2 className="mb-2 text-sm font-semibold text-muted">Other files</h2>
+            <ul className="space-y-1.5 text-sm">{otherFiles.map((f) => <li key={f.id}><a href={fileUrl(f.id)} className="inline-flex items-center gap-2 hover:text-cobalt"><Download size={14} />{f.name}<span className="text-xs text-muted">{bytes(f.size)}</span></a></li>)}</ul>
+          </div>
+        )}
       </section>
     </div>
   );
@@ -355,6 +402,100 @@ export function PortalDoc() {
         <div className="mb-6 flex items-center gap-3"><span className="text-4xl">{d.icon || '📄'}</span><div><h1 className="font-display text-3xl font-semibold">{d.title}</h1><p className="text-xs text-muted">Updated {ago(d.updatedAt)}</p></div></div>
         <Markdown className="!text-[15px]">{d.content}</Markdown>
       </article>
+    </div>
+  );
+}
+
+export function PortalReview() {
+  const { data, loading, reload } = useFetch('/portal/overview');
+  useLive('task:changed', reload);
+  if (loading || !data) return <PageLoader />;
+  const files = data.reviewFiles || [];
+  return (
+    <div className="space-y-6">
+      <div><h1 className="text-2xl font-semibold">Review</h1><p className="text-sm text-muted">Designs, videos and documents waiting for your feedback. Click on any part of an image or video frame to leave a pinned comment.</p></div>
+      {data.awaitingReview.length > 0 && (
+        <section className="panel p-5">
+          <h2 className="mb-3 font-semibold">Deliverables waiting for sign-off</h2>
+          <ul className="space-y-2">{data.awaitingReview.map((t) => (
+            <li key={t.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-line p-3">
+              <span className="h-2 w-2 rounded-full" style={{ background: t.project.color }} />
+              <Link to={`/portal/tasks/${t.id}?tab=review`} className="min-w-0 flex-1"><span className="block font-medium hover:underline">{t.title}</span><span className="text-xs text-muted">{t.project.name}</span></Link>
+              <ReviewButtons task={t} onDone={reload} />
+            </li>
+          ))}</ul>
+        </section>
+      )}
+      {files.length ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {files.map((f) => (
+            <Link key={f.id} to={`/portal/tasks/${f.task.id}?tab=review`} className="group overflow-hidden rounded-2xl border border-line bg-surface transition hover:shadow-lift">
+              <div className="grid aspect-video place-items-center overflow-hidden bg-sunken">{/^image\//.test(f.mime || '') ? <img src={fileUrl(f.id)} alt="" className="h-full w-full object-cover transition group-hover:scale-105" loading="lazy" /> : /^video\//.test(f.mime || '') ? <Film size={30} className="text-muted" /> : <FileText size={30} className="text-muted" />}</div>
+              <div className="p-4"><p className="truncate font-semibold">{f.task.title}</p><p className="truncate text-xs text-muted">{f.project?.name}, {f.name}, shared {ago(f.createdAt)}</p></div>
+            </Link>
+          ))}
+        </div>
+      ) : !data.awaitingReview.length && <div className="panel"><Empty icon={Eye} title="All caught up" body="When the team shares work for you to check, it shows up here." /></div>}
+    </div>
+  );
+}
+
+export function PortalProfile() {
+  const { data, loading, reload } = useFetch('/portal/profile');
+  const { user } = useAuth();
+  const [answers, setAnswers] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [cat, setCat] = useState('document');
+  const logoRef = useRef(null); const fileRef = useRef(null);
+  useEffect(() => { if (data?.answers) setAnswers(data.answers); }, [data?.answers]);
+  if (loading || !data || !answers) return <PageLoader />;
+  const c = data.client;
+  const save = async () => { setBusy(true); try { await api.patch('/portal/profile', { answers }); toast.success('Saved. The team can see your updates.'); reload(); } catch (err) { toast.error(err.message); } finally { setBusy(false); } };
+  const upload = async (list, category) => {
+    if (!list?.length) return;
+    const fd = new FormData(); [...list].forEach((f) => fd.append('files', f)); fd.append('category', category);
+    const tid = toast.loading('Uploading');
+    try { await api.post('/portal/files', fd); toast.success(category === 'logo' ? 'Logo updated' : 'Uploaded', { id: tid }); reload(); } catch (err) { toast.error(err.message, { id: tid }); }
+  };
+  const remove = async (f) => { try { await api.delete(`/portal/files/${f.id}`); reload(); } catch (err) { toast.error(err.message); } };
+  const LABEL = { logo: 'Logo', brand: 'Brand', document: 'Document', other: 'Other' };
+  return (
+    <div className="space-y-6">
+      <section className="panel flex flex-wrap items-center gap-5 p-6">
+        <button type="button" onClick={() => logoRef.current?.click()} className="group relative grid h-24 w-24 place-items-center overflow-hidden rounded-3xl border-2 border-dashed border-line bg-surface hover:border-faint" title="Change logo">
+          {c.logo ? <img src={clientFileUrl(c.logo, true)} alt="Your logo" className="h-full w-full object-contain p-2" /> : <ImagePlus size={26} className="text-faint" />}
+          <span className="absolute inset-x-0 bottom-0 bg-night/70 py-0.5 text-center text-[10px] font-semibold text-white opacity-0 transition group-hover:opacity-100">Change logo</span>
+        </button>
+        <input ref={logoRef} type="file" accept="image/*" hidden onChange={(e) => { upload(e.target.files, 'logo'); e.target.value = ''; }} />
+        <div className="min-w-0 flex-1"><h1 className="text-2xl font-semibold">{c.name}</h1><p className="text-sm text-muted">{[c.industry, c.city].filter(Boolean).join(', ')}</p><p className="mt-1 text-xs text-muted">Signed in as {user.email}</p></div>
+      </section>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        <section className="panel p-5 sm:p-6">
+          <div className="mb-5 flex items-center gap-2"><h2 className="font-semibold">Business details</h2><button type="button" className="btn-primary btn-sm ml-auto" onClick={save} disabled={busy}>{busy ? 'Saving' : 'Save changes'}</button></div>
+          <OnboardingFields questions={data.questions} values={answers} onChange={setAnswers} savedSecrets={data.savedSecrets} />
+          <div className="mt-6 flex justify-end"><button type="button" className="btn-primary" onClick={save} disabled={busy}>Save changes</button></div>
+        </section>
+        <section className="panel h-fit p-5">
+          <div className="mb-3 flex items-center gap-2"><h2 className="font-semibold">Brand files and documents</h2></div>
+          <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); upload(e.dataTransfer.files, cat); }} className="rounded-2xl border-2 border-dashed border-line p-4 text-center">
+            <FileUp size={20} className="mx-auto text-faint" />
+            <p className="mt-1 text-sm text-muted">Drop files or <button type="button" className="link" onClick={() => fileRef.current?.click()}>choose</button></p>
+            <select className="input mx-auto mt-2 !w-auto !py-1 text-xs" value={cat} onChange={(e) => setCat(e.target.value)}><option value="document">Document</option><option value="brand">Brand guidelines, fonts, photos</option><option value="other">Other</option></select>
+            <input ref={fileRef} type="file" multiple hidden onChange={(e) => { upload(e.target.files, cat); e.target.value = ''; }} />
+          </div>
+          <ul className="mt-3 space-y-1.5">
+            {data.files.map((f) => (
+              <li key={f.id} className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-sm hover:bg-sunken/60">
+                <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-sunken">{/^image\//.test(f.mime) ? <img src={clientFileUrl(f.id, true)} alt="" className="h-full w-full object-cover" loading="lazy" /> : <FileText size={15} className="text-muted" />}</span>
+                <span className="min-w-0 flex-1"><span className="block truncate font-medium">{f.originalName}</span><span className="text-[11px] text-muted">{LABEL[f.category]}, {bytes(f.size)}, {f.uploader ? (f.uploader.id === user.id ? 'you' : f.uploader.name) : 'at sign-up'}</span></span>
+                <a href={clientFileUrl(f.id)} className="rounded p-1 text-muted hover:text-ink" aria-label="Download"><Download size={14} /></a>
+                {f.uploader?.id === user.id && <button type="button" onClick={() => remove(f)} className="rounded p-1 text-muted hover:text-ember" aria-label="Remove"><X size={14} /></button>}
+              </li>
+            ))}
+            {!data.files.length && <li className="py-2 text-sm text-muted">Nothing yet. Share your logo, brand guide, product photos or price list.</li>}
+          </ul>
+        </section>
+      </div>
     </div>
   );
 }

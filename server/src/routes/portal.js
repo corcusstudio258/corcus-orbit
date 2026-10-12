@@ -2,11 +2,25 @@
 // and only to tasks/comments/files the team has marked as visible to the client.
 const router = require('express').Router();
 const { Op } = require('sequelize');
-const { Project, Task, Milestone, Activity, User, Role, Comment, Attachment, ClientRequest, Client, Document, Meeting } = require('../models');
+const { Project, Task, Milestone, Activity, User, Role, Comment, Attachment, ClientRequest, Client, Document, Meeting, ClientFile } = require('../models');
+const profile = require('../services/clientProfile');
+const settings = require('../services/settings');
 const { clientOnly } = require('../middleware/auth');
 const { projectProgress, taskProgressMap } = require('../services/progress');
 const { notify, activity } = require('../services/notify');
 const socket = require('../services/socket');
+const path = require('path');
+const crypto = require('crypto');
+const multer = require('multer');
+const UPLOAD_DIR = path.resolve(__dirname, '../..', process.env.UPLOAD_DIR || './uploads');
+const imageUpload = multer({
+  storage: multer.diskStorage({ destination: UPLOAD_DIR, filename: (q, f, cb) => cb(null, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${path.extname(f.originalname).toLowerCase()}`) }),
+  limits: { fileSize: 15 * 1024 * 1024 }, fileFilter: (q, f, cb) => cb(null, /^image\//.test(f.mimetype)),
+});
+const commentInclude = [
+  { model: User, as: 'author', attributes: ['id', 'name', 'color', 'designation'], include: [{ model: Role, attributes: ['isClientRole'] }] },
+  { model: Attachment, as: 'images', attributes: ['id', 'originalName', 'mime', 'size'] },
+];
 
 router.use(clientOnly);
 const wrap = (f) => (req, res) => f(req, res).catch((e) => res.status(e.status || 500).json({ error: e.message }));
@@ -36,8 +50,11 @@ router.get('/overview', wrap(async (req, res) => {
   const upcoming = visible.filter((t) => t.status !== 'done' && t.dueDate).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate)).slice(0, 6);
   const feed = await Activity.findAll({ where: { projectId: ids, clientVisible: true }, order: [['createdAt', 'DESC']], limit: 20,
     include: [{ model: User, as: 'actor', attributes: ['id', 'name', 'color'] }, { model: Project, attributes: ['id', 'name', 'color'] }] });
+  const clientJson = client.toJSON(); delete clientJson.secrets;
+  const reviewFiles = visible.length ? await Attachment.findAll({ where: { taskId: visible.map((t) => t.id), clientVisible: true, commentId: null, reviewStatus: 'pending' }, order: [['createdAt', 'DESC']], limit: 12 }) : [];
   res.json({
-    client,
+    client: clientJson,
+    reviewFiles: reviewFiles.map((f) => { const t = visible.find((x) => x.id === f.taskId); return { id: f.id, name: f.originalName, mime: f.mime, createdAt: f.createdAt, task: { id: t.id, key: t.key, title: t.title }, project: t.Project }; }),
     projects: projects.map((p) => {
       const own = all.filter((t) => t.projectId === p.id);
       return { id: p.id, name: p.name, code: p.code, color: p.color, status: p.status, description: p.description,
@@ -93,25 +110,50 @@ router.get('/tasks/:id', wrap(async (req, res) => {
   const all = await Task.findAll({ where: { projectId: t.projectId }, attributes: ['id', 'parentId', 'status'], raw: true });
   const pm = taskProgressMap(all);
   const subs = await Task.findAll({ where: { parentId: t.id, clientVisible: true }, include: [{ model: User, as: 'assignees', attributes: teamAttrs, through: { attributes: [] } }] });
-  const comments = await Comment.findAll({ where: { taskId: t.id, internal: false }, order: [['createdAt', 'ASC']],
-    include: [{ model: User, as: 'author', attributes: teamAttrs, include: [{ model: Role, attributes: ['isClientRole'] }] }] });
-  const files = await Attachment.findAll({ where: { taskId: t.id, clientVisible: true } });
+  const comments = await Comment.findAll({ where: { taskId: t.id, internal: false }, order: [['createdAt', 'ASC']], include: commentInclude });
+  const files = await Attachment.findAll({ where: { taskId: t.id, clientVisible: true, commentId: null } });
   res.json({ ...clean(t, pm), project: { id: t.Project.id, name: t.Project.name, color: t.Project.color },
     subtasks: subs.map((s) => clean(s, pm)), comments,
-    files: files.map((f) => ({ id: f.id, name: f.originalName, size: f.size, mime: f.mime, createdAt: f.createdAt })) });
+    files: files.map((f) => ({ id: f.id, name: f.originalName, originalName: f.originalName, size: f.size, mime: f.mime, createdAt: f.createdAt, reviewStatus: f.reviewStatus, forReview: f.forReview })) });
 }));
 
-router.post('/tasks/:id/comments', wrap(async (req, res) => {
+router.post('/tasks/:id/comments', imageUpload.array('images', 6), wrap(async (req, res) => {
   const t = await visibleTask(req, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const files = req.files || [];
   const body = String(req.body.body || '').trim();
-  if (!body) return res.status(400).json({ error: 'Write a message first.' });
-  const c = await Comment.create({ taskId: t.id, userId: req.user.id, body, internal: false });
+  if (!body && !files.length) return res.status(400).json({ error: 'Write a message or add an image first.' });
+  let target = null;
+  if (req.body.attachmentId) {
+    target = await Attachment.findOne({ where: { id: req.body.attachmentId, taskId: t.id, clientVisible: true } });
+    if (!target) return res.status(400).json({ error: 'That file is not shared with you.' });
+  }
+  const n = (v) => (v === undefined || v === '' || v === null ? null : Number(v));
+  const c = await Comment.create({ taskId: t.id, userId: req.user.id, body, internal: false, kind: target ? 'review' : 'comment', attachmentId: target?.id || null,
+    pinX: n(req.body.pinX), pinY: n(req.body.pinY), pinTime: n(req.body.pinTime) });
+  if (files.length) await Attachment.bulkCreate(files.map((f) => ({ taskId: t.id, commentId: c.id, userId: req.user.id, originalName: f.originalname, fileName: f.filename, mime: f.mimetype, size: f.size, clientVisible: true, forReview: false })));
+  if (target && target.reviewStatus !== 'changes') { target.reviewStatus = 'changes'; await target.save(); }
   await notify({ userIds: [...t.assignees.map((a) => a.id), t.createdById, t.Project.ownerId], type: 'task_comment',
     title: `Client message on ${t.key}`, body: `${req.user.name}: ${body.slice(0, 200)}`, link: `/tasks/${t.id}` });
   await activity({ actorId: req.user.id, action: 'client.comment', summary: `left a message on ${t.key}`, taskId: t.id, projectId: t.projectId, clientVisible: true });
   socket.toStaff('task:changed', { id: t.id, projectId: t.projectId });
-  res.status(201).json(await Comment.findByPk(c.id, { include: [{ model: User, as: 'author', attributes: teamAttrs, include: [{ model: Role, attributes: ['isClientRole'] }] }] }));
+  res.status(201).json(await Comment.findByPk(c.id, { include: commentInclude }));
+}));
+
+// Client approves one file or asks for changes on it.
+router.post('/files/:aid/review', wrap(async (req, res) => {
+  const a = await Attachment.findByPk(req.params.aid);
+  const t = a && a.clientVisible ? await visibleTask(req, a.taskId) : null;
+  if (!t) return res.status(404).json({ error: 'File not found.' });
+  const approve = req.body.decision === 'approve';
+  a.reviewStatus = approve ? 'approved' : 'changes'; await a.save();
+  const note = String(req.body.note || '').trim();
+  if (note || !approve) await Comment.create({ taskId: t.id, userId: req.user.id, internal: false, kind: 'review', attachmentId: a.id, body: note || 'Changes requested on this file.' });
+  await notify({ userIds: [...t.assignees.map((x) => x.id), t.createdById, t.Project.ownerId], type: 'approval_result',
+    title: approve ? `Client approved ${a.originalName}` : `Client wants changes to ${a.originalName}`, body: note || `${t.key} ${t.title}`, link: `/tasks/${t.id}?tab=review` });
+  await activity({ actorId: req.user.id, action: approve ? 'client.file_approved' : 'client.file_changes', summary: `${approve ? 'approved' : 'asked for changes on'} ${a.originalName} (${t.key})`, taskId: t.id, projectId: t.projectId, clientVisible: true });
+  socket.toStaff('task:changed', { id: t.id, projectId: t.projectId });
+  res.json({ ok: true, reviewStatus: a.reviewStatus });
 }));
 
 // Client signs off a deliverable (task in review) or asks for changes.
@@ -133,6 +175,50 @@ router.post('/tasks/:id/review', wrap(async (req, res) => {
     summary: approve ? `approved ${t.key} "${t.title}"` : `requested changes on ${t.key} "${t.title}"`, taskId: t.id, projectId: t.projectId, clientVisible: true });
   socket.toStaff('task:changed', { id: t.id, projectId: t.projectId });
   res.json({ ok: true, status: t.status });
+}));
+
+// ---------- business profile, logo and documents ----------
+router.get('/profile', wrap(async (req, res) => {
+  const c = await Client.scope('withSecrets').findByPk(req.user.clientId);
+  const files = await ClientFile.findAll({ where: { clientId: c.id }, order: [['createdAt', 'DESC']], include: [{ model: User, as: 'uploader', attributes: ['id', 'name'] }] });
+  const form = await profile.publicForm();
+  const savedSecrets = Object.keys(profile.decrypt(c.secrets));
+  const prefill = {};
+  (await settings.get('onboarding')).questions.forEach((q) => { if (q.maps && c[q.maps]) prefill[q.id] = c[q.maps]; });
+  res.json({ client: { id: c.id, name: c.name, email: c.email, phone: c.phone, whatsapp: c.whatsapp, industry: c.industry, city: c.city, website: c.website, logo: c.logo, color: c.color, status: c.status },
+    answers: { ...prefill, ...(c.onboarding || {}) }, savedSecrets, questions: form.questions, files });
+}));
+
+router.patch('/profile', wrap(async (req, res) => {
+  const c = await Client.scope('withSecrets').findByPk(req.user.clientId);
+  let incoming = req.body.answers || {};
+  if (typeof incoming === 'string') { try { incoming = JSON.parse(incoming); } catch { incoming = {}; } }
+  const { answers, secrets, mapped, error } = await profile.readAnswers({ ...(c.onboarding || {}), ...incoming }, { partial: true });
+  if (error) return res.status(400).json({ error });
+  c.onboarding = { ...(c.onboarding || {}), ...answers };
+  if (Object.keys(secrets).length) c.secrets = profile.encrypt({ ...profile.decrypt(c.secrets), ...secrets });
+  ['name', 'email', 'phone', 'whatsapp', 'industry', 'city', 'website'].forEach((k) => { if (mapped[k]) c[k] = mapped[k]; });
+  if (req.body.website !== undefined) c.website = String(req.body.website).slice(0, 250);
+  await c.save();
+  socket.toStaff('client:changed', { id: c.id });
+  res.json({ ok: true });
+}));
+
+router.post('/files', profile.upload.array('files', 10), wrap(async (req, res) => {
+  const c = await Client.findByPk(req.user.clientId);
+  const category = ['logo', 'brand', 'document', 'other'].includes(req.body.category) ? req.body.category : 'document';
+  const rows = await profile.saveFiles(c, req.files, category, req.user.id);
+  const staff = (await User.findAll({ where: { isActive: true }, include: [Role] })).filter((u) => !u.Role?.isClientRole && (u.Role?.permissions || []).some((p) => ['clients.manage', 'clients.view'].includes(p)));
+  await notify({ userIds: staff.map((u) => u.id), type: 'client_request', title: `${c.name} uploaded ${category === 'logo' ? 'a new logo' : `${rows.length} file${rows.length > 1 ? 's' : ''}`}`, body: rows.map((r) => r.originalName).join(', '), link: `/clients/${c.id}` });
+  res.status(201).json(rows);
+}));
+
+router.delete('/files/:fid', wrap(async (req, res) => {
+  const c = await Client.findByPk(req.user.clientId);
+  const f = await ClientFile.findOne({ where: { id: req.params.fid, clientId: c.id } });
+  if (!f || f.userId !== req.user.id) return res.status(403).json({ error: 'You can only remove files you uploaded.' });
+  await profile.removeFile(c, f.id);
+  res.json({ ok: true });
 }));
 
 router.get('/docs/:id', wrap(async (req, res) => {

@@ -291,7 +291,7 @@ export function ImportExport() {
           ) : (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-2 text-sm"><FileSpreadsheet size={16} className="text-muted" /><span className="font-semibold">{csv.name}</span><span className="text-muted">{csv.rows.length} rows</span><button type="button" className="btn-ghost btn-sm ml-auto" onClick={() => { setCsv(null); setResult(null); }}>Choose another</button></div>
-              <Field label="Into project"><select className="input sm:w-80" value={projectId} onChange={(e) => setProjectId(e.target.value)}><option value="">No project (personal tasks)</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.code} {p.name}</option>)}</select></Field>
+              <Field label="Into project"><select className="input sm:w-80" value={projectId} onChange={(e) => setProjectId(e.target.value)}><option value="" disabled>Pick a project</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.code} {p.name}</option>)}</select></Field>
               <div className="overflow-x-auto rounded-xl border border-line">
                 <table className="w-full text-sm">
                   <thead className="bg-sunken/60"><tr>{csv.head.map((h, i) => (
@@ -304,7 +304,7 @@ export function ImportExport() {
                 </table>
               </div>
               {csv.rows.length > 5 && <p className="text-xs text-muted">Showing 5 of {csv.rows.length} rows.</p>}
-              <button type="button" className="btn-primary" onClick={run} disabled={busy || !can('tasks.create')}>{busy ? <Spinner size={14} className="text-ink" /> : <Upload size={15} />}Import {csv.rows.length} tasks</button>
+              <button type="button" className="btn-primary" onClick={run} disabled={busy || !projectId || !can("tasks.create")}>{busy ? <Spinner size={14} className="text-ink" /> : <Upload size={15} />}Import {csv.rows.length} tasks</button>
               {result && (
                 <div className={clsx('rounded-xl p-3 text-sm', result.errors.length ? 'bg-amber/10' : 'bg-leaf/10')}>
                   <p className="flex items-center gap-2 font-semibold"><Check size={15} />{result.created} tasks created</p>

@@ -19,6 +19,7 @@ const wrap = (f) => (req, res) => f(req, res).catch((e) => {
   res.status(e.status || 500).json({ error: e.message });
 });
 const DAY = 864e5;
+const hideMoney = (req, rows) => (req.can('projects.budget') ? rows : rows.map((p) => ({ ...p, budget: 0, spent: 0 })));
 const dayKey = (d) => new Date(d).toISOString().slice(0, 10);
 
 async function canManage(req, projectOrId) {
@@ -64,7 +65,7 @@ router.get('/', wrap(async (req, res) => {
     include: [{ model: Client, attributes: ['id', 'name', 'color'] }, { model: User, as: 'owner', attributes: memberAttrs },
       { model: User, as: 'members', attributes: memberAttrs, through: { attributes: ['role'] } }],
   });
-  res.json(await summarize(projects));
+  res.json(hideMoney(req, await summarize(projects)));
 }));
 
 router.get('/:id', wrap(async (req, res) => {
@@ -116,7 +117,7 @@ router.get('/:id', wrap(async (req, res) => {
   const activeSprint = await Sprint.findOne({ where: { projectId: p.id, status: 'active' } });
   const docCount = await Document.count({ where: { projectId: p.id } });
   res.json({
-    ...summary, workload: Object.values(load), minutesLogged: minutes || 0, activity: recent, burndown,
+    ...hideMoney(req, [summary])[0], workload: Object.values(load), minutesLogged: minutes || 0, activity: recent, burndown,
     alerts: health.alerts, activeSprint, docCount,
     priorities: ['urgent', 'high', 'medium', 'low'].map((k) => ({ priority: k, count: tasks.filter((t) => t.priority === k && t.status !== 'done').length })),
     canManage: await canManage(req, p),
@@ -162,6 +163,12 @@ router.post('/', requirePerm('projects.manage'), wrap(async (req, res) => {
   } else if (b.plan) {
     applied = await applyStructure(p, b.plan, req.user.id, { startDate: p.startDate, clientVisible: !!p.clientId });
   }
+  if (!(await Section.count({ where: { projectId: p.id } }))) {
+    const stages = Array.isArray(b.stages) && b.stages.filter((x) => String(x).trim()).length ? b.stages.filter((x) => String(x).trim()) : ['To do', 'In progress'];
+    const colors = ['#5B6386', '#3D5AFE', '#8B5CF6', '#0EA5B7', '#C76A00', '#1FA971'];
+    await Section.bulkCreate(stages.slice(0, 12).map((name, i) => ({ projectId: p.id, name: String(name).trim().slice(0, 60), color: colors[i % colors.length], order: i })));
+  }
+  if (b.pipeline) p.pipeline = { review: b.pipeline.review !== false, done: b.pipeline.done !== false, archive: b.pipeline.archive !== false }, await p.save();
   await notify({ userIds: members, type: 'task_assigned', exclude: req.user.id, title: `You were added to ${p.name}`,
     body: `Project lead: ${(await User.findByPk(p.ownerId))?.name || req.user.name}`, link: `/projects/${p.id}` });
   await activity({ actorId: req.user.id, action: 'project.created', summary: `created project ${p.name}${applied ? ` with ${applied.created} tasks` : ''}`, projectId: p.id, clientVisible: true });
@@ -179,6 +186,7 @@ router.patch('/:id', wrap(async (req, res) => {
     'budget', 'spent', 'currency', 'healthOverride'].forEach((k) => {
     if (b[k] !== undefined) p[k] = b[k] === '' ? null : b[k];
   });
+  if (b.pipeline && typeof b.pipeline === 'object') p.pipeline = { review: b.pipeline.review !== false, done: b.pipeline.done !== false, archive: b.pipeline.archive !== false };
   await p.save();
   if (b.memberIds) {
     const before = (await ProjectMember.findAll({ where: { projectId: p.id }, raw: true })).map((m) => m.userId);

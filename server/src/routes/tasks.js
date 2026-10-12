@@ -134,6 +134,7 @@ const actorOf = (req) => ({ id: req.user.id, name: req.user.name });
 
 /** Create + notify. Shared by the API, client requests, AI actions and templates. */
 async function createTask(req, data, { silent = false } = {}) {
+  if (!data.parentId && !data.projectId) { const e = new Error('Every task lives in a project. Pick a project first.'); e.status = 400; throw e; }
   let assigneeIds = (data.assigneeIds || []).map(Number).filter(Boolean);
   if (assigneeIds.some((id) => id !== req.user.id) && !req.can('tasks.assign')) assigneeIds = assigneeIds.filter((id) => id === req.user.id);
   const task = await createTaskRecord({ ...data, assigneeIds }, req.user.id);
@@ -286,7 +287,8 @@ router.patch('/bulk', wrap(async (req, res) => {
 
 // ---------- reorder (board drag) ----------
 router.post('/reorder', wrap(async (req, res) => {
-  const { id, status, sectionId, beforeId, afterId } = req.body;
+  const { id, sectionId, beforeId, afterId, stage } = req.body;
+  let { status } = req.body;
   const task = await Task.findByPk(id);
   if (!task || !(await canEditTask(req, task))) return res.status(403).json({ error: "You can't move this task." });
   const before = beforeId ? await Task.findByPk(beforeId, { attributes: ['position'] }) : null;
@@ -295,9 +297,27 @@ router.post('/reorder', wrap(async (req, res) => {
   else if (before) task.position = before.position + 1000;
   else if (after) task.position = after.position - 1000;
   if (sectionId !== undefined) task.sectionId = sectionId || null;
+  let archivedNow = false;
+  if (stage) {
+    // Pipeline stages: "section:<id>" | "review" | "done" | "archive"
+    if (stage === 'archive') {
+      if (!task.archived) { task.archived = true; archivedNow = true; }
+    } else {
+      task.archived = false;
+      if (stage.startsWith('section:')) {
+        const sec = await Section.findOne({ where: { id: Number(stage.slice(8)), projectId: task.projectId } });
+        if (!sec) return res.status(400).json({ error: 'That stage is not part of this project.' });
+        task.sectionId = sec.id;
+        const firstSec = await Section.findOne({ where: { projectId: task.projectId }, order: [['order', 'ASC'], ['id', 'ASC']] });
+        // First stage means "not started", later stages mean "being worked on". Blocked stays blocked.
+        if (task.status !== 'blocked') status = firstSec && firstSec.id === sec.id ? 'todo' : 'in_progress';
+      } else if (['review', 'done'].includes(stage)) status = stage;
+    }
+  }
   await task.save();
   let notice = null;
   if (status && status !== task.status) ({ notice } = await applyStatus(req, task, status));
+  if (archivedNow) await activity({ actorId: req.user.id, action: 'task.archived', summary: `archived ${task.key} "${task.title}"`, taskId: task.id, projectId: task.projectId });
   broadcast(task);
   const full = await Task.findByPk(task.id, { include: listIncludes });
   res.json({ ...(await decorate([full]))[0], notice });
@@ -328,7 +348,7 @@ router.get('/:id', wrap(async (req, res) => {
       { model: Milestone, attributes: ['id', 'title'] },
       { model: Sprint, attributes: ['id', 'name', 'status'] },
       { model: ChecklistItem, as: 'checklist' },
-      { model: Comment, include: [{ model: User, as: 'author', attributes: userAttrs, include: [{ model: Role, attributes: ['isClientRole', 'name'] }] }] },
+      { model: Comment, include: commentInclude },
       { model: Attachment, include: [{ model: User, as: 'uploader', attributes: ['id', 'name'] }] },
       { model: TimeLog, include: [{ model: User, attributes: ['id', 'name', 'color'] }] },
       { model: Task, as: 'blockers', attributes: ['id', 'key', 'title', 'status', 'dueDate'], through: { attributes: [] } },
@@ -551,28 +571,69 @@ router.delete('/checklist/:itemId', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// ---------- comments ----------
-router.post('/:id/comments', wrap(async (req, res) => {
+// ---------- comments (with images) and visual review pins ----------
+const IMAGE_ONLY = (req, file, cb) => cb(null, /^image\//.test(file.mimetype));
+const commentUpload = multer({ storage: upload.storage, limits: { fileSize: 15 * 1024 * 1024 }, fileFilter: IMAGE_ONLY });
+const commentInclude = [
+  { model: User, as: 'author', attributes: userAttrs, include: [{ model: Role, attributes: ['isClientRole', 'name'] }] },
+  { model: Attachment, as: 'images', attributes: ['id', 'originalName', 'mime', 'size'] },
+  { model: User, as: 'resolver', attributes: ['id', 'name'] },
+];
+const num = (v) => (v === undefined || v === null || v === '' ? null : Number(v));
+
+router.post('/:id/comments', commentUpload.array('images', 6), wrap(async (req, res) => {
   const task = await Task.findByPk(req.params.id);
   if (!task || !(await canSeeTask(req, task))) return res.status(404).json({ error: 'Task not found.' });
-  const body = String(req.body.body || '').trim();
-  if (!body) return res.status(400).json({ error: 'Write something first.' });
-  const internal = req.body.internal !== false;
-  const c = await Comment.create({ taskId: task.id, userId: req.user.id, body, internal: task.clientVisible ? internal : true });
+  const files = req.files || [];
+  const body = String(req.body.body || '').trim() || (files.length ? '' : null);
+  if (body === null) return res.status(400).json({ error: 'Write something or add an image first.' });
+  const internal = !(req.body.internal === false || req.body.internal === 'false');
+  let target = null;
+  if (req.body.attachmentId) {
+    target = await Attachment.findOne({ where: { id: req.body.attachmentId, taskId: task.id } });
+    if (!target) return res.status(400).json({ error: 'That file is not on this task.' });
+  }
+  const pinX = num(req.body.pinX); const pinY = num(req.body.pinY); const pinTime = num(req.body.pinTime);
+  const c = await Comment.create({
+    taskId: task.id, userId: req.user.id, body: body || '', internal: task.clientVisible ? internal : true,
+    kind: target ? 'review' : 'comment', attachmentId: target?.id || null,
+    pinX: pinX != null ? Math.max(0, Math.min(1, pinX)) : null, pinY: pinY != null ? Math.max(0, Math.min(1, pinY)) : null, pinTime,
+  });
+  if (files.length) {
+    await Attachment.bulkCreate(files.map((f) => ({ taskId: task.id, commentId: c.id, userId: req.user.id, originalName: f.originalname, fileName: f.filename,
+      mime: f.mimetype, size: f.size, clientVisible: !c.internal, forReview: false })));
+  }
+  if (target && target.reviewStatus === 'approved') { target.reviewStatus = 'changes'; await target.save(); }
   await TaskWatcher.findOrCreate({ where: { taskId: task.id, userId: req.user.id } });
   const assigneeIds = (await task.getAssignees({ attributes: ['id'] })).map((a) => a.id);
-  const mentions = (req.body.mentions || []).map(Number);
-  await notify({ userIds: mentions, type: 'task_mention', exclude: req.user.id, title: `${req.user.name} mentioned you on ${task.key}`,
-    body: body.slice(0, 200), link: `/tasks/${task.id}` });
+  const mentions = (Array.isArray(req.body.mentions) ? req.body.mentions : String(req.body.mentions || '').split(',')).map(Number).filter(Boolean);
+  const preview = body ? body.slice(0, 200) : `shared ${files.length} image${files.length > 1 ? 's' : ''}`;
+  const what = target ? `feedback on ${target.originalName}` : 'a comment';
+  await notify({ userIds: mentions, type: 'task_mention', exclude: req.user.id, title: `${req.user.name} mentioned you on ${task.key}`, body: preview, link: `/tasks/${task.id}` });
   await notify({ userIds: [...assigneeIds, task.createdById, ...(await watcherIds(task.id))].filter((id) => !mentions.includes(id)), type: 'task_comment', exclude: req.user.id,
-    title: `New comment on ${task.key}`, body: `${req.user.name}: ${body.slice(0, 200)}`, link: `/tasks/${task.id}` });
-  if (!c.internal) await notifyClientIfVisible(task, `New update on ${task.title}`, body.slice(0, 200));
-  await activity({ actorId: req.user.id, action: 'task.comment', summary: `commented on ${task.key}`, taskId: task.id, projectId: task.projectId,
-    clientVisible: !c.internal });
+    title: `${target ? 'Review feedback' : 'New comment'} on ${task.key}`, body: `${req.user.name}: ${preview}`, link: `/tasks/${task.id}` });
+  if (!c.internal) await notifyClientIfVisible(task, `New update on ${task.title}`, preview);
+  await activity({ actorId: req.user.id, action: target ? 'task.review' : 'task.comment', summary: `left ${what} on ${task.key}`, taskId: task.id, projectId: task.projectId, clientVisible: !c.internal });
   emit('task.comment', { task, comment: c, actor: actorOf(req) });
   broadcast(task);
-  const full = await Comment.findByPk(c.id, { include: [{ model: User, as: 'author', attributes: userAttrs, include: [{ model: Role, attributes: ['isClientRole', 'name'] }] }] });
-  res.status(201).json(full);
+  res.status(201).json(await Comment.findByPk(c.id, { include: commentInclude }));
+}));
+
+router.patch('/comments/:cid', wrap(async (req, res) => {
+  const c = await Comment.findByPk(req.params.cid);
+  if (!c) return res.status(404).json({ error: 'Comment not found.' });
+  const task = await Task.findByPk(c.taskId);
+  if (req.body.resolved !== undefined) {
+    if (!(await canEditTask(req, task)) && c.userId !== req.user.id) return res.status(403).json({ error: "You can't resolve this." });
+    c.resolved = !!req.body.resolved; c.resolvedAt = c.resolved ? new Date() : null; c.resolvedById = c.resolved ? req.user.id : null;
+  }
+  if (req.body.body !== undefined) {
+    if (c.userId !== req.user.id) return res.status(403).json({ error: 'You can only edit your own comments.' });
+    c.body = String(req.body.body).trim();
+  }
+  await c.save();
+  broadcast(task);
+  res.json(await Comment.findByPk(c.id, { include: commentInclude }));
 }));
 
 router.delete('/comments/:cid', wrap(async (req, res) => {
@@ -603,8 +664,14 @@ router.patch('/attachments/:aid', wrap(async (req, res) => {
   const a = await Attachment.findByPk(req.params.aid);
   const task = a && await Task.findByPk(a.taskId);
   if (!task || !(await canEditTask(req, task))) return res.status(403).json({ error: "You can't edit this task." });
-  a.clientVisible = !!req.body.clientVisible && task.clientVisible;
+  if (req.body.clientVisible !== undefined) a.clientVisible = !!req.body.clientVisible && task.clientVisible;
+  if (req.body.forReview !== undefined) a.forReview = !!req.body.forReview;
+  if (['pending', 'approved', 'changes'].includes(req.body.reviewStatus)) {
+    a.reviewStatus = req.body.reviewStatus;
+    await activity({ actorId: req.user.id, action: 'task.file_review', summary: `${a.reviewStatus === 'approved' ? 'approved' : a.reviewStatus === 'changes' ? 'asked for changes on' : 'reopened'} ${a.originalName} on ${task.key}`, taskId: task.id, projectId: task.projectId, clientVisible: a.clientVisible });
+  }
   await a.save();
+  broadcast(task);
   res.json(a);
 }));
 

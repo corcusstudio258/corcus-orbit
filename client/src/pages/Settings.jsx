@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { MessageCircle, Send, Sparkles, KeyRound, ExternalLink, CheckCircle2, User, Building2, Palette } from 'lucide-react';
+import { MessageCircle, Send, Sparkles, KeyRound, ExternalLink, CheckCircle2, User, Building2, Palette, Plug, Mail, Video, Flame, UserPlus } from 'lucide-react';
 import api from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { refreshAi } from '../lib/directory';
 import { useTheme } from '../lib/theme';
-import { Field, Toggle, PageLoader, Segmented, PageHeader, Tabs, Spinner } from '../components/ui';
+import { Field, Toggle, PageLoader, Segmented, PageHeader, Tabs, Spinner, PasswordInput } from '../components/ui';
 import { ago } from '../lib/format';
 
 const EVENTS = [
@@ -124,6 +124,145 @@ function Ai({ initial, onSaved }) {
   );
 }
 
+function IntegrationCard({ icon: Icon, color, title, desc, children, on, onToggle, steps }) {
+  return (
+    <section className="panel space-y-4 p-5">
+      <div className="flex items-start gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-white" style={{ background: color }}><Icon size={18} /></span>
+        <div className="min-w-0 flex-1"><h2 className="font-semibold">{title}</h2><p className="text-xs text-muted">{desc}</p></div>
+        <span className={`chip ${on ? 'bg-leaf/10 text-leaf' : 'bg-sunken text-muted'}`}>{on ? 'On' : 'Off'}</span>
+      </div>
+      <Toggle checked={on} onChange={onToggle} label={`Use ${title}`} />
+      {children}
+      {steps && <details className="rounded-xl bg-sunken/60 px-3 py-2 text-xs text-muted"><summary className="cursor-pointer font-semibold text-ink">How to set it up</summary><ol className="mt-2 list-decimal space-y-1 pl-4">{steps.map((x, i) => <li key={i}>{x}</li>)}</ol></details>}
+    </section>
+  );
+}
+
+function Integrations({ initial, onSaved }) {
+  const [fb, setFb] = useState(initial.firebase);
+  const [em, setEm] = useState(initial.email);
+  const [zm, setZm] = useState(initial.zoom);
+  const [busy, setBusy] = useState('');
+  const save = async (key, body, quiet) => {
+    const { data } = await api.patch(`/settings/${key}`, body);
+    ({ firebase: setFb, email: setEm, zoom: setZm })[key](data);
+    if (!quiet) toast.success('Saved'); onSaved?.();
+    return data;
+  };
+  const test = async (key, body, extra) => {
+    setBusy(key);
+    try { await save(key, body, true); const { data } = await api.post(`/settings/${key}/test`, extra || {}); toast.success(key === 'zoom' ? `Zoom connected (${data.account})` : key === 'email' ? 'Test email sent' : 'Firebase sent a sign-in link to your email'); } catch (e) { toast.error(e.message); } finally { setBusy(''); }
+  };
+  const fset = (setter) => (k) => (e) => setter((s) => ({ ...s, [k]: e?.target ? (e.target.type === 'checkbox' ? e.target.checked : e.target.value) : e }));
+  const F = fset(setFb); const E = fset(setEm); const Z = fset(setZm);
+  return (
+    <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+      <IntegrationCard icon={Flame} color="#F5820D" title="Firebase" desc="Sends team invites and password-reset emails with secure sign-in links."
+        on={fb.enabled} onToggle={(v) => save('firebase', { ...fb, enabled: v })}
+        steps={['Open console.firebase.google.com and create a project (free Spark plan is enough).', 'Authentication, Get started, Sign-in method: turn on Email/Password and Email link (passwordless sign-in).', 'Authentication, Settings, Authorized domains: add your Orbit domain (for example orbit-api-production-a127.up.railway.app).', 'Project settings, General: copy the Web API key and paste it here.']}>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Web API key"><input className="input font-mono text-xs" value={fb.apiKey || ''} onChange={F('apiKey')} placeholder="AIza..." autoComplete="off" /></Field>
+          <Field label="Project ID" hint="Optional, for your reference"><input className="input" value={fb.projectId || ''} onChange={F('projectId')} placeholder="corcus-orbit" /></Field>
+        </div>
+        <div className="flex gap-2"><button type="button" className="btn-primary" onClick={() => save('firebase', fb).catch((e) => toast.error(e.message))}>Save</button><button type="button" className="btn-ghost" disabled={busy === 'firebase'} onClick={() => test('firebase', fb)}>{busy === 'firebase' ? <Spinner size={14} /> : <Send size={14} />}Send me a test link</button></div>
+      </IntegrationCard>
+
+      <IntegrationCard icon={Mail} color="#3D5AFE" title="Email (SMTP)" desc="Meeting invites with calendar files, client approvals and a backup for invites. Firebase can't send these."
+        on={em.enabled} onToggle={(v) => save('email', { ...em, enabled: v })}
+        steps={['Hostinger mailbox: host smtp.hostinger.com, port 465, your full email and its password.', 'Gmail: turn on 2-step verification, create an App password, then host smtp.gmail.com, port 465, your Gmail and the 16-letter app password.', 'Set From to something like Corcus Studio <noreply@corcus.in>.']}>
+        <div className="grid gap-3 sm:grid-cols-[1fr_110px]">
+          <Field label="SMTP host"><input className="input" value={em.host || ''} onChange={E('host')} placeholder="smtp.hostinger.com" /></Field>
+          <Field label="Port"><input type="number" className="input" value={em.port || 465} onChange={E('port')} /></Field>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Username"><input className="input" value={em.user || ''} onChange={E('user')} placeholder="noreply@corcus.in" autoComplete="off" /></Field>
+          <Field label="Password"><PasswordInput value={em.pass || ''} onChange={E('pass')} autoComplete="new-password" /></Field>
+          <Field label="From" className="sm:col-span-2"><input className="input" value={em.from || ''} onChange={E('from')} placeholder="Corcus Studio <noreply@corcus.in>" /></Field>
+        </div>
+        <div className="flex gap-2"><button type="button" className="btn-primary" onClick={() => save('email', em).catch((e) => toast.error(e.message))}>Save</button><button type="button" className="btn-ghost" disabled={busy === 'email'} onClick={() => test('email', em)}>{busy === 'email' ? <Spinner size={14} /> : <Send size={14} />}Send a test email</button></div>
+      </IntegrationCard>
+
+      <IntegrationCard icon={Video} color="#2D8CFF" title="Zoom" desc="Creates a Zoom meeting for every meeting you schedule in Orbit, and keeps time changes in sync."
+        on={zm.enabled} onToggle={(v) => save('zoom', { ...zm, enabled: v })}
+        steps={['Go to marketplace.zoom.us, Develop, Build App, and choose Server-to-Server OAuth.', 'Add scopes: meeting:write:meeting:admin, meeting:update:meeting:admin, meeting:delete:meeting:admin and user:read:user:admin (or the older meeting:write:admin and user:read:admin).', 'Activate the app, then copy the Account ID, Client ID and Client secret here.']}>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Account ID"><input className="input font-mono text-xs" value={zm.accountId || ''} onChange={Z('accountId')} autoComplete="off" /></Field>
+          <Field label="Client ID"><input className="input font-mono text-xs" value={zm.clientId || ''} onChange={Z('clientId')} autoComplete="off" /></Field>
+          <Field label="Client secret" className="sm:col-span-2"><PasswordInput value={zm.clientSecret || ''} onChange={Z('clientSecret')} autoComplete="new-password" /></Field>
+        </div>
+        <div className="flex gap-2"><button type="button" className="btn-primary" onClick={() => save('zoom', zm).catch((e) => toast.error(e.message))}>Save</button><button type="button" className="btn-ghost" disabled={busy === 'zoom'} onClick={() => test('zoom', zm)}>{busy === 'zoom' ? <Spinner size={14} /> : <CheckCircle2 size={14} />}Test connection</button></div>
+      </IntegrationCard>
+    </div>
+  );
+}
+
+const QTYPES = [['text', 'Short text'], ['textarea', 'Paragraph'], ['email', 'Email'], ['tel', 'Phone'], ['url', 'Link'], ['choice', 'One choice'], ['multi', 'Several choices'], ['date', 'Date'], ['secret', 'Password (encrypted)']];
+const MAPS = [['', 'Nothing'], ['name', 'Client name'], ['industry', 'Industry'], ['phone', 'Phone'], ['whatsapp', 'WhatsApp'], ['email', 'Email'], ['city', 'City / address'], ['website', 'Website']];
+
+function SignupSettings({ initial, onSaved }) {
+  const [f, setF] = useState(initial);
+  const [open, setOpen] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const link = `${window.location.origin}/signup`;
+  const setQ = (i, patch) => setF((s) => ({ ...s, questions: s.questions.map((q, j) => (j === i ? { ...q, ...patch } : q)) }));
+  const move = (i, d) => setF((s) => { const qs = [...s.questions]; const j = i + d; if (j < 0 || j >= qs.length) return s; [qs[i], qs[j]] = [qs[j], qs[i]]; return { ...s, questions: qs }; });
+  const add = () => { setF((s) => ({ ...s, questions: [...s.questions, { id: `q_${Date.now().toString(36)}`, label: 'New question', type: 'text', required: false }] })); setOpen(f.questions.length); };
+  const save = async () => {
+    setBusy(true);
+    try { const { data } = await api.put('/settings/onboarding', f); setF(data); toast.success('Sign-up form saved'); onSaved?.(); } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <section className="panel space-y-3 p-5">
+        <div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold">Onboarding questions</h2><span className="text-xs text-muted">{f.questions.length} questions</span>
+          <div className="ml-auto flex gap-2"><button type="button" className="btn-ghost btn-sm" onClick={add}>Add question</button><button type="button" className="btn-primary btn-sm" disabled={busy} onClick={save}>Save form</button></div></div>
+        <p className="text-xs text-muted">This is what new clients fill in when they sign up, and what they can update later in their portal. Paste your Google Form questions here as new questions.</p>
+        <ol className="space-y-2">
+          {f.questions.map((q, i) => (
+            <li key={q.id} className="rounded-xl border border-line bg-surface">
+              <div className="flex items-center gap-2 px-3 py-2">
+                <span className="w-6 text-center text-xs font-semibold text-faint">{i + 1}</span>
+                <button type="button" className="min-w-0 flex-1 truncate text-left text-sm font-medium" onClick={() => setOpen(open === i ? null : i)}>{q.label}{q.required && <span className="text-ember"> *</span>}</button>
+                <span className="chip bg-sunken text-muted">{QTYPES.find(([k]) => k === q.type)?.[1]}</span>
+                {q.showIf && <span className="chip bg-violet/10 text-violet">conditional</span>}
+                <button type="button" className="rounded p-1 text-muted hover:bg-sunken disabled:opacity-30" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Up">↑</button>
+                <button type="button" className="rounded p-1 text-muted hover:bg-sunken disabled:opacity-30" disabled={i === f.questions.length - 1} onClick={() => move(i, 1)} aria-label="Down">↓</button>
+                <button type="button" className="rounded p-1 text-muted hover:bg-sunken hover:text-ember" onClick={() => setF((s) => ({ ...s, questions: s.questions.filter((_, j) => j !== i) }))} aria-label="Delete">✕</button>
+              </div>
+              {open === i && (
+                <div className="grid gap-3 border-t border-line p-3 sm:grid-cols-2">
+                  <Field label="Question" className="sm:col-span-2"><input className="input" value={q.label} onChange={(e) => setQ(i, { label: e.target.value })} /></Field>
+                  <Field label="Answer type"><select className="input" value={q.type} onChange={(e) => setQ(i, { type: e.target.value })}>{QTYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
+                  <Field label="Section heading" hint="Questions with the same heading are grouped"><input className="input" value={q.section || ''} onChange={(e) => setQ(i, { section: e.target.value })} placeholder="Social media" /></Field>
+                  {['choice', 'multi'].includes(q.type) && <Field label="Options" hint="Comma separated" className="sm:col-span-2"><input className="input" value={(q.options || []).join(', ')} onChange={(e) => setQ(i, { options: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })} /></Field>}
+                  <Field label="Help text" className="sm:col-span-2"><input className="input" value={q.hint || ''} onChange={(e) => setQ(i, { hint: e.target.value })} /></Field>
+                  <Field label="Fills the client's"><select className="input" value={q.maps || ''} onChange={(e) => setQ(i, { maps: e.target.value || undefined })}>{MAPS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
+                  <Field label="Only show when">
+                    <div className="flex gap-2">
+                      <select className="input" value={q.showIf?.id || ''} onChange={(e) => setQ(i, { showIf: e.target.value ? { id: e.target.value, is: q.showIf?.is || '' } : undefined })}><option value="">Always</option>{f.questions.filter((x) => x.id !== q.id && x.type === 'choice').map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>
+                      {q.showIf?.id && <select className="input" value={q.showIf.is} onChange={(e) => setQ(i, { showIf: { ...q.showIf, is: e.target.value } })}><option value="">pick</option>{(f.questions.find((x) => x.id === q.showIf.id)?.options || []).map((o) => <option key={o}>{o}</option>)}</select>}
+                    </div>
+                  </Field>
+                  <div className="sm:col-span-2"><Toggle checked={!!q.required} onChange={(v) => setQ(i, { required: v })} label="Required" /></div>
+                </div>
+              )}
+            </li>
+          ))}
+        </ol>
+      </section>
+      <section className="panel h-fit space-y-4 p-5">
+        <Toggle checked={f.allowSignup !== false} onChange={(v) => setF((s) => ({ ...s, allowSignup: v }))} label="Let clients sign up" hint="Shows a Create account option on the sign-in page." />
+        <Toggle checked={!!f.autoApprove} onChange={(v) => setF((s) => ({ ...s, autoApprove: v }))} label="Approve automatically" hint="Off: you approve each new client from the Clients page first." />
+        <Field label="Welcome line"><textarea className="input" rows={3} value={f.welcome || ''} onChange={(e) => setF((s) => ({ ...s, welcome: e.target.value }))} /></Field>
+        <Field label="Sign-up link to share"><div className="flex gap-2"><input readOnly className="input text-xs" value={link} onFocus={(e) => e.target.select()} /><button type="button" className="btn-ghost shrink-0" onClick={() => { navigator.clipboard?.writeText(link); toast.success('Link copied'); }}>Copy</button></div></Field>
+        <a href="/signup" target="_blank" rel="noreferrer" className="btn-ghost w-full"><ExternalLink size={14} />Preview the form</a>
+        <button type="button" className="btn-primary w-full" disabled={busy} onClick={save}>Save form</button>
+      </section>
+    </div>
+  );
+}
+
 function Appearance() {
   const [theme, , setTheme] = useTheme();
   return (
@@ -158,7 +297,7 @@ function WhatsApp({ initial }) {
       <section className="panel space-y-5 p-5">
         <Toggle checked={f.enabled} onChange={set('enabled')} label="Send WhatsApp notifications" hint="When off, people only get in-app notifications." />
         <Field label="How messages are sent">
-          <Segmented value={f.provider} onChange={set('provider')} options={[{ value: 'log', label: 'Log only (testing)' }, { value: 'meta', label: 'WhatsApp Cloud API' }, { value: 'custom', label: 'My WhatsApp API' }]} />
+          <Segmented value={f.provider} onChange={set('provider')} options={[{ value: 'log', label: 'Log only (testing)' }, { value: 'corcus', label: 'chat.corcus.in' }, { value: 'meta', label: 'WhatsApp Cloud API' }, { value: 'custom', label: 'Other API' }]} />
         </Field>
         {f.provider === 'meta' && (
           <div className="grid gap-4 sm:grid-cols-2">
@@ -172,6 +311,18 @@ function WhatsApp({ initial }) {
               <Field label="Template name"><input className="input" value={f.meta.templateName} onChange={set('meta.templateName')} /></Field>
               <Field label="Template language"><input className="input" value={f.meta.templateLang} onChange={set('meta.templateLang')} placeholder="en" /></Field>
             </>)}
+          </div>
+        )}
+        {f.provider === 'corcus' && (
+          <div className="space-y-4 rounded-xl border border-leaf/30 bg-leaf/5 p-4">
+            <p className="text-xs text-muted">Sends through your chat.corcus.in panel. In the panel, open API or Developer settings, create an API token, and copy the send-message endpoint and your WhatsApp number ID. Placeholders: {'{{phone}}'}, {'{{message}}'}, {'{{phoneNumberId}}'}.</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Panel URL"><input className="input" value={f.corcus?.baseUrl || ''} onChange={set('corcus.baseUrl')} placeholder="https://chat.corcus.in" /></Field>
+              <Field label="Send endpoint"><input className="input font-mono text-xs" value={f.corcus?.path || ''} onChange={set('corcus.path')} placeholder="/api/v1/whatsapp/send" /></Field>
+              <Field label="API token" className="sm:col-span-2"><PasswordInput value={f.corcus?.token || ''} onChange={set('corcus.token')} autoComplete="off" /></Field>
+              <Field label="WhatsApp number ID" hint="If your panel asks for one"><input className="input" value={f.corcus?.phoneNumberId || ''} onChange={set('corcus.phoneNumberId')} /></Field>
+            </div>
+            <Field label="Request body (JSON)" hint="Match the field names from your panel's API docs."><textarea className="input font-mono text-xs" rows={3} value={f.corcus?.bodyTemplate || ''} onChange={set('corcus.bodyTemplate')} /></Field>
           </div>
         )}
         {f.provider === 'custom' && (
@@ -223,7 +374,7 @@ export default function Settings() {
   useEffect(() => { load(); }, []);
   const admin = can('settings.manage');
   const tabs = [{ value: 'profile', label: 'My profile', icon: User }, { value: 'appearance', label: 'Appearance', icon: Palette },
-    ...(admin ? [{ value: 'company', label: 'Company', icon: Building2 }, { value: 'ai', label: 'AI', icon: Sparkles }, { value: 'whatsapp', label: 'WhatsApp', icon: MessageCircle }] : [])];
+    ...(admin ? [{ value: 'company', label: 'Company', icon: Building2 }, { value: 'ai', label: 'AI', icon: Sparkles }, { value: 'whatsapp', label: 'WhatsApp', icon: MessageCircle }, { value: 'integrations', label: 'Email, Firebase, Zoom', icon: Plug }, { value: 'signup', label: 'Client sign-up', icon: UserPlus }] : [])];
   return (
     <div>
       <PageHeader title="Settings" />
@@ -233,6 +384,8 @@ export default function Settings() {
       {tab === 'company' && admin && (s ? <Company company={s.company} onSaved={() => { load(); refresh(); }} /> : <PageLoader />)}
       {tab === 'ai' && admin && (s?.ai ? <Ai initial={s.ai} onSaved={load} /> : <PageLoader />)}
       {tab === 'whatsapp' && admin && (s?.whatsapp ? <WhatsApp initial={s.whatsapp} /> : <PageLoader />)}
+      {tab === 'integrations' && admin && (s?.email ? <Integrations initial={s} onSaved={load} /> : <PageLoader />)}
+      {tab === 'signup' && admin && (s?.onboarding ? <SignupSettings initial={s.onboarding} onSaved={load} /> : <PageLoader />)}
     </div>
   );
 }

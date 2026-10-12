@@ -1,6 +1,9 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
-const { Client, Project, User, Role, Task, ClientRequest } = require('../models');
+const { Client, Project, User, Role, Task, ClientRequest, ClientFile } = require('../models');
+const profile = require('../services/clientProfile');
+const settings = require('../services/settings');
+const mailer = require('../services/mailer');
 const { requirePerm, staffOnly } = require('../middleware/auth');
 const { projectProgress } = require('../services/progress');
 const { notify, activity, whatsappDirect } = require('../services/notify');
@@ -16,8 +19,9 @@ router.get('/', requirePerm('clients.view', 'clients.manage'), async (req, res) 
   res.json(clients.map((c) => {
     const pids = new Set(c.Projects.map((p) => p.id));
     const own = tasks.filter((t) => pids.has(t.projectId));
+    const { secrets, ...json } = c.toJSON();
     return {
-      ...c.toJSON(), projectCount: c.Projects.length,
+      ...json, hasSecrets: !!secrets, projectCount: c.Projects.length,
       activeProjects: c.Projects.filter((p) => p.status === 'active').length,
       progress: projectProgress(own), openRequests: openReq.filter((r) => r.clientId === c.id).length,
     };
@@ -38,8 +42,48 @@ router.get('/:id', requirePerm('clients.view', 'clients.manage'), async (req, re
     include: [{ model: User, as: 'requester', attributes: ['id', 'name'] }, { model: Project, attributes: ['id', 'name'] },
       { model: Task, attributes: ['id', 'key', 'status'] }] });
   const json = client.toJSON();
+  const withSecrets = await Client.scope('withSecrets').findByPk(client.id, { attributes: ['id', 'secrets'] });
   json.Projects = json.Projects.map((p) => ({ ...p, progress: projectProgress(tasks.filter((t) => t.projectId === p.id)) }));
-  res.json({ ...json, requests });
+  const files = await ClientFile.findAll({ where: { clientId: client.id }, order: [['createdAt', 'DESC']], include: [{ model: User, as: 'uploader', attributes: ['id', 'name'] }] });
+  const form = await settings.get('onboarding');
+  delete json.secrets;
+  res.json({ ...json, requests, files, hasSecrets: !!withSecrets?.secrets, questions: form.questions.map(({ id, label, type, section }) => ({ id, label, type, section })) });
+});
+
+// Approve a client who signed up from the portal.
+router.post('/:id/approve', requirePerm('clients.manage'), async (req, res) => {
+  const c = await Client.findByPk(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Client not found.' });
+  c.status = 'active'; c.approvedAt = new Date(); await c.save();
+  const users = await User.findAll({ where: { clientId: c.id } });
+  for (const u of users) { u.isActive = true; await u.save(); }
+  const company = (await settings.get('company')).name;
+  await notify({ userIds: users.map((u) => u.id), type: 'client_update', title: `Your ${company} portal is ready`, body: 'Sign in to follow your projects.', link: '/portal' });
+  if (await mailer.ready()) {
+    const origin = req.headers.origin || process.env.APP_URL || '';
+    for (const u of users) mailer.send({ to: u.email, subject: `Your ${company} portal is ready`, html: await mailer.layout(`Welcome, ${u.name.split(' ')[0]}`, '<p>Your account is approved. Sign in to follow progress, review work and share files with the team.</p>', origin ? { url: `${origin}/login`, label: 'Open your portal' } : null) }).catch(() => {});
+  }
+  await activity({ actorId: req.user.id, action: 'client.approved_signup', summary: `approved the portal sign-up for ${c.name}` });
+  res.json(c);
+});
+
+router.get('/:id/secrets', requirePerm('clients.manage'), async (req, res) => {
+  const c = await Client.scope('withSecrets').findByPk(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Client not found.' });
+  await activity({ actorId: req.user.id, action: 'client.secrets_viewed', summary: `viewed saved credentials for ${c.name}` });
+  res.json(profile.decrypt(c.secrets));
+});
+
+router.post('/:id/files', requirePerm('clients.manage'), profile.upload.array('files', 10), async (req, res) => {
+  const c = await Client.findByPk(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Client not found.' });
+  try { res.status(201).json(await profile.saveFiles(c, req.files, ['logo', 'brand', 'document', 'other'].includes(req.body.category) ? req.body.category : 'document', req.user.id)); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+router.delete('/:id/files/:fid', requirePerm('clients.manage'), async (req, res) => {
+  const c = await Client.findByPk(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Client not found.' });
+  try { await profile.removeFile(c, req.params.fid); res.json({ ok: true }); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 
 router.post('/', requirePerm('clients.manage'), async (req, res) => {
@@ -51,8 +95,10 @@ router.post('/', requirePerm('clients.manage'), async (req, res) => {
 router.patch('/:id', requirePerm('clients.manage'), async (req, res) => {
   const c = await Client.findByPk(req.params.id);
   if (!c) return res.status(404).json({ error: 'Client not found.' });
-  await c.update(req.body);
-  res.json(c);
+  const { secrets, id, ...rest } = req.body;
+  await c.update(rest);
+  const out = c.toJSON(); delete out.secrets;
+  res.json(out);
 });
 
 // ---- Portal logins for a client ----

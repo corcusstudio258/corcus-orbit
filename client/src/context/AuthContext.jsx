@@ -62,10 +62,11 @@ export function AuthProvider({ children }) {
     setToken(data.token); apply(data);
     return data;
   };
+  const adopt = (data) => { setToken(data.token); apply(data); return data; };
   const logout = () => { setToken(null); setState({ loading: false, user: null, permissions: [], isClient: false, company: null }); };
 
   const value = useMemo(() => ({
-    ...state, unread, setUnread, chatUnread, setChatUnread, loadChatUnread, online, login, logout, setup, refresh, subscribe, socketEmit,
+    ...state, unread, setUnread, chatUnread, setChatUnread, loadChatUnread, online, login, logout, setup, adopt, refresh, subscribe, socketEmit,
     can: (...perms) => perms.some((p) => state.permissions.includes(p)),
   }), [state, unread, chatUnread, online, refresh, subscribe, socketEmit, loadChatUnread]); // eslint-disable-line react-hooks/exhaustive-deps
 

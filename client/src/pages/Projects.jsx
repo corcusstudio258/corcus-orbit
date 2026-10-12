@@ -41,7 +41,7 @@ export function ProjectForm({ open, onClose, project, onSaved, initialTemplateId
   const [clients, setClients] = useState([]);
   const [templates, setTemplates] = useState([]);
   const { can } = useAuth();
-  const blank = { name: '', code: '', description: '', clientId: '', ownerId: '', memberIds: [], status: 'active', startDate: new Date().toISOString().slice(0, 10), dueDate: '', color: '#3D5AFE', icon: '🚀', clientVisible: true, budget: '', spent: '', currency: 'INR' };
+  const blank = { name: '', code: '', description: '', clientId: '', ownerId: '', memberIds: [], status: 'active', startDate: new Date().toISOString().slice(0, 10), dueDate: '', color: '#3D5AFE', icon: '🚀', clientVisible: true, budget: '', spent: '', currency: 'INR', stages: 'Brief, In progress', pipeline: { review: true, done: true, archive: true } };
   const [f, setF] = useState(blank);
   const [mode, setMode] = useState('blank'); // blank | template | ai
   const [step, setStep] = useState(project ? 'details' : 'choose');
@@ -74,7 +74,7 @@ export function ProjectForm({ open, onClose, project, onSaved, initialTemplateId
     if (!f.name.trim()) return toast.error('Give the project a name.');
     setBusy(true);
     try {
-      const body = { ...f, clientId: f.clientId || null, ownerId: f.ownerId || null, startDate: f.startDate || null, dueDate: f.dueDate || null, budget: Number(f.budget) || 0, spent: Number(f.spent) || 0,
+      const body = { ...f, stages: String(f.stages || '').split(',').map((x) => x.trim()).filter(Boolean), clientId: f.clientId || null, ownerId: f.ownerId || null, startDate: f.startDate || null, dueDate: f.dueDate || null, budget: Number(f.budget) || 0, spent: Number(f.spent) || 0,
         ...(mode === 'template' && templateId ? { templateId } : {}), ...(mode === 'ai' && plan ? { plan } : {}) };
       const { data } = project ? await api.patch(`/projects/${project.id}`, body) : await api.post('/projects', body);
       invalidate('projects'); refreshProjects();
@@ -143,6 +143,16 @@ export function ProjectForm({ open, onClose, project, onSaved, initialTemplateId
         )}
       </div>
       <Toggle checked={f.clientVisible} onChange={set('clientVisible')} label="Show this project in the client portal" hint="Only tasks you mark as shared appear there." />
+      {!project && mode === 'blank' && (
+        <div className="space-y-3 rounded-xl border border-line p-4">
+          <Field label="Pipeline stages" hint="Comma separated, in order. You can change them any time."><input className="input" value={f.stages} onChange={set('stages')} placeholder="Brief, Design, Shoot, Edit" /></Field>
+          <div className="flex flex-wrap items-center gap-2 text-xs"><span className="text-muted">Then:</span>
+            {[['review', 'In review'], ['done', 'Completed'], ['archive', 'Archive']].map(([k, l]) => (
+              <button key={k} type="button" onClick={() => setF((s2) => ({ ...s2, pipeline: { ...s2.pipeline, [k]: !s2.pipeline[k] } }))} className={clsx('rounded-full border px-3 py-1 font-semibold transition', f.pipeline[k] ? 'border-ink bg-ink text-surface' : 'border-line text-muted line-through')}>{l}</button>
+            ))}
+          </div>
+        </div>
+      )}
       {mode === 'ai' && (
         <div className="space-y-3 rounded-xl border border-violet/25 bg-violet/5 p-4">
           <Field label="What's the project about?"><textarea className="input min-h-[90px]" value={brief} onChange={(e) => setBrief(e.target.value)} placeholder="Launch campaign for a new thekua flavour: 30 days of Instagram, 2 reels a week, Meta ads with ₹50k budget, influencer collabs in Patna and Ranchi." /></Field>

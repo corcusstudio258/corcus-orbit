@@ -10,6 +10,7 @@ import { useComposer } from './Layout';
 import { useAuth } from '../context/AuthContext';
 import { useDirectory } from '../lib/directory';
 import { changeStatus } from './TaskPanel';
+import { celebrate, pointOf } from './Celebrate';
 
 export { changeStatus };
 
@@ -88,7 +89,7 @@ export function Kanban({ tasks, setTasks, groupBy = 'status', sections = [], def
   const [adding, setAdding] = useState(false);
   const [newSec, setNewSec] = useState('');
 
-  const move = async (id, colKey, beforeId) => {
+  const move = async (id, colKey, beforeId, evt) => {
     const t = tasks.find((x) => x.id === id);
     if (!t) return;
     const colTasks = tasks.filter((x) => String(g.keyOf(x)) === String(colKey) && x.id !== id);
@@ -111,6 +112,7 @@ export function Kanban({ tasks, setTasks, groupBy = 'status', sections = [], def
         });
         if (data.notice) toast(data.notice, { icon: '⚠️' });
         setTasks((ts) => ts.map((x) => (x.id === id ? { ...x, ...data } : x)));
+        if (data.status !== t.status && ['review', 'done'].includes(data.status)) celebrate(data.status, pointOf(evt));
       } else if (groupBy === 'priority' && !same) {
         await api.patch(`/tasks/${id}`, { priority: colKey });
       } else if (groupBy === 'assignee' && !same) {
@@ -134,7 +136,7 @@ export function Kanban({ tasks, setTasks, groupBy = 'status', sections = [], def
         if (groupBy === 'status' && c.key === 'backlog' && !col.length && tasks.length > 0 && !defaults.projectId) return null;
         return (
           <div key={c.key} onDragOver={(e) => { e.preventDefault(); setOverCol(c.key); }} onDragLeave={() => setOverCol(null)}
-            onDrop={(e) => { e.preventDefault(); setOverCol(null); move(Number(e.dataTransfer.getData('text/task')), c.key); }}
+            onDrop={(e) => { e.preventDefault(); setOverCol(null); move(Number(e.dataTransfer.getData('text/task')), c.key, null, e); }}
             className={clsx('flex w-[288px] shrink-0 flex-col rounded-2xl p-2 transition', overCol === c.key ? 'bg-cobalt/10 ring-2 ring-cobalt/30' : 'bg-sunken/70')}>
             <div className="mb-2 flex items-center gap-2 px-1.5 pt-1">
               {c.user ? <Avatar user={c.user} size={20} /> : <span className="h-2.5 w-2.5 rounded-full" style={{ background: c.color }} />}
@@ -147,7 +149,7 @@ export function Kanban({ tasks, setTasks, groupBy = 'status', sections = [], def
               {col.map((t) => (
                 <TaskCard key={t.id} t={t} showProject={!defaults.projectId}
                   onDragStart={(e) => e.dataTransfer.setData('text/task', String(t.id))}
-                  onDropBefore={(e) => move(Number(e.dataTransfer.getData('text/task')), c.key, t.id)} />
+                  onDropBefore={(e) => move(Number(e.dataTransfer.getData('text/task')), c.key, t.id, e)} />
               ))}
               {!col.length && <div className="grid flex-1 place-items-center rounded-xl border-2 border-dashed border-line py-6 text-xs text-faint">Drop tasks here</div>}
             </div>
@@ -175,7 +177,7 @@ function Row({ t, level = 0, onChanged, showProject, selected, onSelect }) {
     if (!open && !kids) { setBusy(true); try { setKids((await api.get(`/tasks?parentId=${t.id}`)).data); } finally { setBusy(false); } }
     setOpen((o) => !o);
   };
-  const setStatus = async (e) => { try { const u = await changeStatus(t, e.target.value); onChanged?.(u); } catch (err) { toast.error(err.message); } };
+  const setStatus = async (e) => { try { const u = await changeStatus(t, e.target.value, pointOf(e)); onChanged?.(u); } catch (err) { toast.error(err.message); } };
   return (
     <>
       <tr className={clsx('group border-b border-line/70 transition hover:bg-sunken/50', selected && 'bg-brand-soft/40')}>
@@ -292,7 +294,7 @@ export function TaskTable({ tasks, setTasks, showProject = true, groupBy, sectio
                 </td></tr>
               )}
               {!collapsed[grp.key] && grp.tasks.map((t) => <Row key={t.id} t={t} showProject={showProject} selected={sel.includes(t.id)} onSelect={toggleSel} onChanged={(u) => setTasks((ts) => ts.map((x) => (x.id === u.id ? { ...x, ...u } : x)))} />)}
-              {!collapsed[grp.key] && grp.label && groupBy !== 'assignee' && groupBy !== 'project' && <QuickAdd defaults={patchDefaults(grp)} colSpan={colSpan} onAdd={(nt) => setTasks((ts) => [...ts, nt])} />}
+              {!collapsed[grp.key] && (defaults.projectId || grp.projectId) && grp.label && groupBy !== 'assignee' && groupBy !== 'project' && <QuickAdd defaults={patchDefaults(grp)} colSpan={colSpan} onAdd={(nt) => setTasks((ts) => [...ts, nt])} />}
             </tbody>
           ))}
           {!groups.length && <tbody><tr><td colSpan={colSpan} className="py-10 text-center text-sm text-muted">No tasks.</td></tr></tbody>}

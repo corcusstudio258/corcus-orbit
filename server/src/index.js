@@ -26,6 +26,7 @@ if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
 
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 app.use('/api/auth', authRouter);
+app.use('/api/public', require('./routes/public'));
 app.use('/api/roles', auth, require('./routes/roles'));
 app.use('/api/users', auth, require('./routes/users'));
 app.use('/api/clients', auth, require('./routes/clients'));
@@ -43,6 +44,7 @@ app.use('/api/notifications', ...misc.notifications);
 app.use('/api/activity', ...misc.activity);
 app.use('/api/settings', ...misc.settings);
 app.use('/api/files', misc.files);
+app.use('/api/client-files', misc.clientFiles);
 app.use('/api', (req, res) => res.status(404).json({ error: 'Unknown API route.' }));
 
 // Serve the built React app in production (client/dist)

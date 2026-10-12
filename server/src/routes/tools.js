@@ -15,7 +15,7 @@ const wrap = (f) => (req, res) => f(req, res).catch((e) => {
   if (!e.status) console.error(e);
   res.status(e.status || 500).json({ error: e.message });
 });
-const canAutomate = (req) => req.can('settings.manage') || req.can('projects.manage');
+const canAutomate = (req) => req.can('settings.manage') || req.can('automations.manage');
 
 // ---------- automations ----------
 router.get('/automations', wrap(async (req, res) => {
@@ -79,7 +79,7 @@ router.get('/templates/:id', wrap(async (req, res) => {
   res.json({ ...t.toJSON(), taskCount: countTasks(t.structure) });
 }));
 
-router.post('/templates', requirePerm('projects.manage'), wrap(async (req, res) => {
+router.post('/templates', requirePerm('projects.manage', 'templates.manage'), wrap(async (req, res) => {
   const b = req.body;
   let structure = b.structure;
   if (b.fromProjectId) {
@@ -93,7 +93,7 @@ router.post('/templates', requirePerm('projects.manage'), wrap(async (req, res) 
   res.status(201).json(t);
 }));
 
-router.patch('/templates/:id', requirePerm('projects.manage'), wrap(async (req, res) => {
+router.patch('/templates/:id', requirePerm('templates.manage'), wrap(async (req, res) => {
   const t = await Template.findByPk(req.params.id);
   if (!t) return res.status(404).json({ error: 'Template not found.' });
   ['name', 'description', 'category', 'icon', 'structure'].forEach((k) => { if (req.body[k] !== undefined) t[k] = req.body[k]; });
@@ -101,7 +101,7 @@ router.patch('/templates/:id', requirePerm('projects.manage'), wrap(async (req, 
   res.json(t);
 }));
 
-router.delete('/templates/:id', requirePerm('projects.manage'), wrap(async (req, res) => {
+router.delete('/templates/:id', requirePerm('templates.manage'), wrap(async (req, res) => {
   const t = await Template.findByPk(req.params.id);
   if (!t) return res.status(404).json({ error: 'Template not found.' });
   if (t.isSystem && !req.can('settings.manage')) return res.status(403).json({ error: 'Built-in templates can only be removed by an admin.' });

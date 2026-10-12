@@ -32,7 +32,25 @@ const Client = sequelize.define('Client', {
   city: DataTypes.STRING,
   notes: DataTypes.TEXT,
   color: { type: DataTypes.STRING, defaultValue: '#3DE0F2' },
-  status: { type: DataTypes.STRING, defaultValue: 'active' }, // active | paused | archived
+  status: { type: DataTypes.STRING, defaultValue: 'active' }, // pending | active | paused | archived
+  logo: DataTypes.STRING, // stored file name in uploads
+  website: DataTypes.STRING,
+  onboarding: json('onboarding', null), // answers to the onboarding form
+  secrets: DataTypes.TEXT, // encrypted JSON of credential answers (admins only)
+  signupSource: DataTypes.STRING, // portal | team
+  approvedAt: DataTypes.DATE,
+}, {
+  defaultScope: { attributes: { exclude: ['secrets'] } },
+  scopes: { withSecrets: { attributes: { include: ['secrets'] } } },
+});
+
+const ClientFile = sequelize.define('ClientFile', {
+  originalName: DataTypes.STRING,
+  fileName: DataTypes.STRING,
+  mime: DataTypes.STRING,
+  size: DataTypes.INTEGER,
+  category: { type: DataTypes.STRING, defaultValue: 'other' }, // logo | brand | document | other
+  note: DataTypes.STRING,
 });
 
 const User = sequelize.define('User', {
@@ -47,8 +65,12 @@ const User = sequelize.define('User', {
   isActive: { type: DataTypes.BOOLEAN, defaultValue: true },
   lastSeenAt: DataTypes.DATE,
   notifyPrefs: json('notifyPrefs', { assigned: true, status: true, comment: true, due: true, approval: true }),
+  inviteToken: DataTypes.STRING, // pending invite / password reset token (hashed)
+  inviteExpires: DataTypes.DATE,
+  invitedAt: DataTypes.DATE,
+  invitePurpose: DataTypes.STRING, // invite | reset
 }, {
-  defaultScope: { attributes: { exclude: ['passwordHash'] } },
+  defaultScope: { attributes: { exclude: ['passwordHash', 'inviteToken'] } },
   scopes: { withPassword: { attributes: { include: ['passwordHash'] } } },
 });
 
@@ -68,6 +90,7 @@ const Project = sequelize.define('Project', {
   spent: { type: DataTypes.FLOAT, defaultValue: 0 },
   currency: { type: DataTypes.STRING, defaultValue: 'INR' },
   healthOverride: DataTypes.STRING, // on_track | at_risk | off_track | null (auto)
+  pipeline: json('pipeline', { review: true, done: true, archive: true }), // fixed end stages switched on/off
 });
 
 const ProjectMember = sequelize.define('ProjectMember', {
@@ -117,6 +140,12 @@ const ChecklistItem = sequelize.define('ChecklistItem', {
 const Comment = sequelize.define('Comment', {
   body: { type: DataTypes.TEXT, allowNull: false },
   internal: { type: DataTypes.BOOLEAN, defaultValue: true }, // false = visible to client
+  kind: { type: DataTypes.STRING, defaultValue: 'comment' }, // comment | review
+  pinX: DataTypes.FLOAT, // 0..1 across the reviewed file
+  pinY: DataTypes.FLOAT,
+  pinTime: DataTypes.FLOAT, // seconds into a video
+  resolved: { type: DataTypes.BOOLEAN, defaultValue: false },
+  resolvedAt: DataTypes.DATE,
 });
 
 const Attachment = sequelize.define('Attachment', {
@@ -125,6 +154,8 @@ const Attachment = sequelize.define('Attachment', {
   mime: DataTypes.STRING,
   size: DataTypes.INTEGER,
   clientVisible: { type: DataTypes.BOOLEAN, defaultValue: false },
+  forReview: { type: DataTypes.BOOLEAN, defaultValue: true }, // false for images pasted into comments
+  reviewStatus: { type: DataTypes.STRING, defaultValue: 'pending' }, // pending | approved | changes
 });
 
 const TimeLog = sequelize.define('TimeLog', {
@@ -215,6 +246,11 @@ const Meeting = sequelize.define('Meeting', {
   aiSummary: json('aiSummary', null),
   reminderSentAt: DataTypes.DATE,
   inviteClient: { type: DataTypes.BOOLEAN, defaultValue: false },
+  provider: { type: DataTypes.STRING, defaultValue: 'link' }, // link | zoom
+  zoomId: DataTypes.STRING,
+  zoomPassword: DataTypes.STRING,
+  guestEmails: json('guestEmails', []),
+  emailedAt: DataTypes.DATE,
 });
 const MeetingAttendee = sequelize.define('MeetingAttendee', {
   response: { type: DataTypes.STRING, defaultValue: 'pending' }, // pending | yes | no | maybe
@@ -320,6 +356,11 @@ Task.hasMany(ChecklistItem, { as: 'checklist', foreignKey: 'taskId', onDelete: '
 Task.hasMany(Comment, { foreignKey: 'taskId', onDelete: 'CASCADE' });
 Comment.belongsTo(User, { as: 'author', foreignKey: 'userId' });
 Task.hasMany(Attachment, { foreignKey: 'taskId', onDelete: 'CASCADE' });
+Comment.hasMany(Attachment, { as: 'images', foreignKey: 'commentId' });
+Comment.belongsTo(Attachment, { as: 'target', foreignKey: 'attachmentId', constraints: false });
+Comment.belongsTo(User, { as: 'resolver', foreignKey: 'resolvedById', constraints: false });
+Client.hasMany(ClientFile, { foreignKey: 'clientId', onDelete: 'CASCADE' });
+ClientFile.belongsTo(User, { as: 'uploader', foreignKey: 'userId', constraints: false });
 Attachment.belongsTo(User, { as: 'uploader', foreignKey: 'userId' });
 Task.hasMany(TimeLog, { foreignKey: 'taskId', onDelete: 'CASCADE' });
 TimeLog.belongsTo(User, { foreignKey: 'userId' });
@@ -382,7 +423,7 @@ AiInsight.belongsTo(User, { foreignKey: 'userId' });
 
 module.exports = {
   Section, Sprint, TaskDependency, TaskWatcher, Channel, ChannelMember, Message, Meeting, MeetingAttendee, Document,
-  Attendance, PointEntry, UserBadge, Automation, Template, AiInsight,
+  Attendance, PointEntry, UserBadge, Automation, Template, AiInsight, ClientFile,
   sequelize, Role, Client, User, Project, ProjectMember, Milestone, Task, TaskAssignee,
   ChecklistItem, Comment, Attachment, TimeLog, Activity, Notification, WhatsAppLog, ClientRequest, Setting,
 };

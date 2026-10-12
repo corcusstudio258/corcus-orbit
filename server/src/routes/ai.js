@@ -56,7 +56,7 @@ async function cached(userId, kind, scope, maxAgeMs) {
 const TASK_DRAFT = S.obj({
   title: S.str('Short imperative task title, max 90 characters'),
   description: S.str('Useful details, links or acceptance criteria in plain text. Empty if none.'),
-  projectCode: S.str('Code of the matching project from the list, or empty for a personal task'),
+  projectCode: S.str('Code of the matching project from the list. Every task must belong to a project; pick the closest match, or empty only if truly unclear'),
   assigneeIds: S.arr(S.int('Team member id'), 'Ids from the team list. Empty if nobody was named.'),
   due: S.str('Due date as YYYY-MM-DD or YYYY-MM-DDTHH:mm (IST). Empty if not mentioned.'),
   startDate: S.str('Start date as YYYY-MM-DD, empty if not mentioned'),
@@ -68,7 +68,8 @@ const TASK_DRAFT = S.obj({
 }, ['title', 'priority']);
 
 // ---------- status ----------
-router.get('/status', wrap(async (req, res) => res.json(await ai.status())));
+router.get('/status', wrap(async (req, res) => res.json(req.can('ai.use') ? await ai.status() : { enabled: false, ready: false, blocked: true })));
+router.use((req, res, next) => (req.can('ai.use') || ['/brief', '/health'].includes(req.path) ? next() : res.status(403).json({ error: 'Your role does not include Orbit AI. Ask an admin to switch it on in Roles & access.' })));
 
 // ---------- Ask Orbit (assistant) ----------
 router.post('/ask', wrap(async (req, res) => {
@@ -110,7 +111,8 @@ router.post('/execute', wrap(async (req, res) => {
   if (a.type === 'create_task') {
     if (!req.can('tasks.create')) return res.status(403).json({ error: "Your role can't create tasks." });
     const t = a.task || {};
-    const project = await resolveProject(req, t.projectCode || t.projectId);
+    const project = await resolveProject(req, t.projectCode || t.projectId || a.projectId);
+    if (!project) return res.status(400).json({ error: 'Which project should this task go in? Every task belongs to a project. Add the project name and try again.' });
     const task = await createTask(req, {
       title: t.title, description: t.description, projectId: project?.id || null, priority: PRIORITIES.includes(t.priority) ? t.priority : 'medium',
       dueDate: parseDue(t.due), startDate: t.startDate || null, assigneeIds: await validUserIds(t.assigneeIds), tags: t.tags || [],

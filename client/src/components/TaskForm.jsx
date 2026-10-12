@@ -6,7 +6,7 @@ import api from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useDirectory, useProjects, useAiStatus } from '../lib/directory';
 import { Modal, Field, UserPicker, Toggle, Spinner } from './ui';
-import { STATUS, STATUS_ORDER, PRIORITY, toLocalInput } from '../lib/format';
+import { PRIORITY, toLocalInput } from '../lib/format';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -79,6 +79,7 @@ export default function TaskForm({ open, onClose, defaults = {}, onCreated }) {
   const submit = async (e) => {
     e.preventDefault();
     if (!f.title.trim()) return toast.error('Give the task a title.');
+    if (!defaults.parentId && !f.projectId) return toast.error('Pick the project this task belongs to.');
     setBusy(true);
     try {
       const payload = {
@@ -117,15 +118,20 @@ export default function TaskForm({ open, onClose, defaults = {}, onCreated }) {
         <div className="grid gap-4 sm:grid-cols-2">
           {!defaults.parentId && (
             <Field label="Project">
-              <select className="input" value={f.projectId} onChange={(e) => setF((s) => ({ ...s, projectId: e.target.value, sectionId: '', sprintId: '', milestoneId: '' }))}>
-                <option value="">Personal (no project)</option>
+              <select required className={clsx('input', !f.projectId && 'text-muted')} value={f.projectId} onChange={(e) => setF((s) => ({ ...s, projectId: e.target.value, sectionId: '', sprintId: '', milestoneId: '' }))}>
+                <option value="" disabled>Pick a project</option>
                 {projects.filter((p) => !['archived', 'completed'].includes(p.status)).map((p) => <option key={p.id} value={p.id}>{p.icon ? `${p.icon} ` : ''}{p.name}</option>)}
               </select>
             </Field>
           )}
           <Field label="Assign to"><UserPicker users={assignable} value={f.assigneeIds} onChange={set('assigneeIds')} placeholder={can('tasks.assign') ? 'Pick people' : 'You'} /></Field>
-          <Field label="Status">
-            <select className="input" value={f.status} onChange={set('status')}>{STATUS_ORDER.map((s) => <option key={s} value={s}>{STATUS[s].label}</option>)}</select>
+          <Field label="Stage">
+            <select className="input" value={f.status === 'review' || f.status === 'done' ? f.status : `s:${f.sectionId || meta.sections[0]?.id || ''}`}
+              onChange={(e) => { const v = e.target.value; if (v === 'review' || v === 'done') setF((s) => ({ ...s, status: v })); else { const sid = Number(v.slice(2)) || ''; setF((s) => ({ ...s, sectionId: sid, status: meta.sections[0] && sid === meta.sections[0].id ? 'todo' : sid ? 'in_progress' : 'todo' })); } }}>
+              {meta.sections.length ? meta.sections.map((s) => <option key={s.id} value={`s:${s.id}`}>{s.name}</option>) : <option value="s:">{defaults.parentId ? 'Same as parent' : f.projectId ? 'First stage' : 'Pick a project first'}</option>}
+              <option value="review">In review</option>
+              <option value="done">Completed</option>
+            </select>
           </Field>
           <Field label="Priority">
             <div className="grid grid-cols-4 gap-1 rounded-xl bg-sunken p-1">
@@ -136,11 +142,6 @@ export default function TaskForm({ open, onClose, defaults = {}, onCreated }) {
           </Field>
           <Field label="Start date"><input type="date" className="input" value={f.startDate} onChange={set('startDate')} /></Field>
           <Field label="Due"><input type="datetime-local" className="input" value={f.dueDate} onChange={set('dueDate')} /></Field>
-          {meta.sections.length > 0 && (
-            <Field label="Section">
-              <select className="input" value={f.sectionId} onChange={set('sectionId')}><option value="">No section</option>{meta.sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
-            </Field>
-          )}
           {meta.sprints.length > 0 && (
             <Field label="Sprint">
               <select className="input" value={f.sprintId} onChange={set('sprintId')}><option value="">Backlog</option>{meta.sprints.map((s) => <option key={s.id} value={s.id}>{s.name}{s.status === 'active' ? ' (active)' : ''}</option>)}</select>

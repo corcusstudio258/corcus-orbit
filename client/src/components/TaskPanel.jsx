@@ -3,8 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 import {
-  ChevronRight, Plus, Trash2, Paperclip, Play, Square, Eye, EyeOff, ShieldCheck, Check, X, Lock, Globe, Clock, GitBranch, Send, Download,
-  Bell, BellOff, MoreHorizontal, Copy, Maximize2, Link2, Sparkles, Repeat, Hash, Ban, Wand2,
+  ChevronRight, Plus, Trash2, Paperclip, Play, Square, Eye, EyeOff, ShieldCheck, Check, X, Lock, Globe, Clock, GitBranch, Download,
+  Bell, BellOff, MoreHorizontal, Archive, Copy, Maximize2, Link2, Sparkles, Repeat, Hash, Ban,
 } from 'lucide-react';
 import api, { fileUrl } from '../lib/api';
 import { useAuth, useLive } from '../context/AuthContext';
@@ -12,10 +12,13 @@ import { useDirectory, useAiStatus } from '../lib/directory';
 import { STATUS, PRIORITY, ago, minutes, bytes, toLocalInput, fmtDate } from '../lib/format';
 import { OrbitRing, Avatar, AvatarStack, StatusPill, DueBadge, PageLoader, UserPicker, Toggle, Bar, Modal, Menu, Markdown, Spinner, Tabs, confirm } from './ui';
 import { useComposer } from './Layout';
+import { celebrate, pointOf } from './Celebrate';
+import { CommentThread, ReviewBoard, toFormData } from './Review';
 
-export async function changeStatus(task, status) {
+export async function changeStatus(task, status, at) {
   const { data } = await api.patch(`/tasks/${task.id}`, { status });
   if (data.notice) toast(data.notice, { icon: '⚠️' });
+  if (data.status !== task.status && ['review', 'done'].includes(data.status)) celebrate(data.status, at);
   return data;
 }
 
@@ -40,7 +43,7 @@ function StatusStepper({ status, onChange, disabled }) {
   return (
     <div className="grid grid-cols-5 gap-1 rounded-xl bg-sunken p-1">
       {flow.map((s, i) => (
-        <button key={s} type="button" disabled={disabled} onClick={() => onChange(s)}
+        <button key={s} type="button" disabled={disabled} onClick={(e) => onChange(s, e)}
           className={clsx('rounded-lg px-1 py-1.5 text-[11px] font-semibold transition sm:text-xs', s === status ? 'text-white' : i < idx ? 'text-ink' : 'text-faint hover:text-ink')}
           style={s === status ? { background: STATUS[s].color } : i < idx ? { background: `${STATUS[s].color}22` } : undefined}>{STATUS[s].label}</button>
       ))}
@@ -78,84 +81,23 @@ function SubtaskTree({ root, items, onStatus, canCreate, onOpen }) {
 }
 
 function Comments({ task, onPosted }) {
-  const { user } = useAuth();
   const people = useDirectory();
   const ai = useAiStatus();
-  const [body, setBody] = useState('');
   const [shared, setShared] = useState(false);
-  const [mentionQ, setMentionQ] = useState(null);
   const [mentions, setMentions] = useState([]);
-  const [polishing, setPolishing] = useState(false);
-  const ref = useRef(null);
-  const onChange = (e) => {
-    const v = e.target.value; setBody(v);
-    const m = v.slice(0, e.target.selectionStart).match(/@(\w*)$/);
-    setMentionQ(m ? m[1].toLowerCase() : null);
+  const post = async (v) => {
+    await api.post(`/tasks/${task.id}/comments`, toFormData(v, { internal: !shared, mentions }));
+    setMentions([]); onPosted();
   };
-  const pick = (p) => {
-    const pos = ref.current.selectionStart;
-    const before = body.slice(0, pos).replace(/@(\w*)$/, `@${p.name.split(' ')[0]} `);
-    setBody(before + body.slice(pos)); setMentions((m) => [...new Set([...m, p.id])]); setMentionQ(null); ref.current.focus();
-  };
-  const post = async (e) => {
-    e?.preventDefault();
-    if (!body.trim()) return;
-    try {
-      await api.post(`/tasks/${task.id}/comments`, { body, internal: !shared, mentions });
-      setBody(''); setMentions([]); onPosted();
-    } catch (err) { toast.error(err.message); }
-  };
-  const polish = async () => {
-    setPolishing(true);
-    try { const { data } = await api.post('/ai/write', { mode: shared ? 'client_update' : 'improve', text: body, context: `Comment on task "${task.title}"` }); setBody(data.text); } catch (err) { toast.error(err.message); } finally { setPolishing(false); }
-  };
-  const matches = mentionQ != null ? people.filter((p) => p.name.toLowerCase().includes(mentionQ)).slice(0, 6) : [];
+  const share = task.clientVisible ? (
+    <button type="button" onClick={() => setShared((s) => !s)} className={clsx('chip border py-1', shared ? 'border-cobalt/40 bg-cobalt/10 text-cobalt' : 'border-line text-muted')}>
+      {shared ? <><Globe size={11} />Client will see this</> : <><Lock size={11} />Team only</>}
+    </button>
+  ) : <span className="inline-flex items-center gap-1 text-[11px] text-faint"><Lock size={11} />Team only</span>;
   return (
-    <div>
-      <ul className="space-y-4">
-        {task.Comments.map((c) => {
-          const fromClient = c.author?.Role?.isClientRole;
-          return (
-            <li key={c.id} className="flex gap-3">
-              <Avatar user={c.author} size={30} />
-              <div className={clsx('min-w-0 flex-1 rounded-xl border px-3.5 py-2.5', fromClient ? 'border-amber/30 bg-amber/5' : c.internal ? 'border-line bg-surface' : 'border-cobalt/25 bg-cobalt/5')}>
-                <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
-                  <span className="font-semibold">{c.author?.name}</span>
-                  {fromClient && <span className="chip bg-amber/15 text-amber">Client</span>}
-                  {!fromClient && !c.internal && <span className="chip bg-cobalt/10 text-cobalt"><Globe size={10} />Shared with client</span>}
-                  <span className="text-faint">{ago(c.createdAt)}</span>
-                </div>
-                <p className="whitespace-pre-wrap text-sm">{c.body}</p>
-              </div>
-            </li>
-          );
-        })}
-        {!task.Comments.length && <li className="py-2 text-sm text-muted">No comments yet. Updates here notify the assignees and watchers.</li>}
-      </ul>
-      <form onSubmit={post} className="relative mt-4 flex gap-3">
-        <Avatar user={user} size={30} />
-        <div className="flex-1">
-          <textarea ref={ref} className="input min-h-[72px]" placeholder="Write an update. Type @ to mention someone." value={body} onChange={onChange}
-            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) post(e); }} />
-          {matches.length > 0 && (
-            <div className="absolute z-20 mt-1 w-64 rounded-xl border border-line bg-surface p-1 shadow-lift">
-              {matches.map((p) => <button type="button" key={p.id} onClick={() => pick(p)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-sunken"><Avatar user={p} size={20} />{p.name}</button>)}
-            </div>
-          )}
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-            {task.clientVisible ? (
-              <button type="button" onClick={() => setShared((s) => !s)} className={clsx('chip border py-1', shared ? 'border-cobalt/40 bg-cobalt/10 text-cobalt' : 'border-line text-muted')}>
-                {shared ? <><Globe size={11} />Client will see this</> : <><Lock size={11} />Team only</>}
-              </button>
-            ) : <span className="inline-flex items-center gap-1 text-[11px] text-faint"><Lock size={11} />Team only</span>}
-            <div className="flex gap-2">
-              {ai.ready && body.trim().length > 8 && <button type="button" className="btn-ai btn-sm" onClick={polish} disabled={polishing}>{polishing ? <Spinner size={12} className="text-violet" /> : <Wand2 size={13} />}Polish</button>}
-              <button className="btn-ink btn-sm"><Send size={13} />Post</button>
-            </div>
-          </div>
-        </div>
-      </form>
-    </div>
+    <CommentThread comments={task.Comments} onPost={post} canShare people={people} onMention={(id) => setMentions((m) => [...new Set([...m, id])])}
+      emptyText="No comments yet. Updates here notify the assignees and watchers."
+      composerExtra={<>{share}{ai.ready && <span className="text-[11px] text-faint">Tip: Orbit AI can polish client updates from the Overview tab.</span>}</>} />
   );
 }
 
@@ -246,7 +188,7 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
   const compose = useComposer();
   const [t, setT] = useState(null);
   const [error, setError] = useState(null);
-  const [tab, setTab] = useState('overview');
+  const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'overview');
   const [item, setItem] = useState('');
   const [timer, setTimer] = useState(null);
   const [logOpen, setLogOpen] = useState(false);
@@ -257,7 +199,7 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
 
   const load = () => api.get(`/tasks/${id}`).then((r) => { setT(r.data); setError(null); }).catch((e) => setError(e.message));
   const loadTimer = () => api.get('/tasks/timer/active').then((r) => setTimer(r.data)).catch(() => {});
-  useEffect(() => { setT(null); setTab('overview'); load(); loadTimer(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setT(null); setTab(new URLSearchParams(window.location.search).get('tab') || 'overview'); load(); loadTimer(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   useLive('task:changed', () => load(), [id]);
   useEffect(() => { const h = () => load(); window.addEventListener('orbit:task-created', h); return () => window.removeEventListener('orbit:task-created', h); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -266,9 +208,9 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
   if (error) return <div className="p-10 text-center"><p className="text-muted">{error}</p>{onClose && <button type="button" className="btn-ghost mt-4" onClick={onClose}>Close</button>}</div>;
   if (!t) return <div className="p-6"><PageLoader /></div>;
 
-  const patch = async (body, isStatus) => {
+  const patch = async (body, isStatus, evt) => {
     try {
-      const data = isStatus ? await changeStatus(t, body.status) : (await api.patch(`/tasks/${t.id}`, body)).data;
+      const data = isStatus ? await changeStatus(t, body.status, pointOf(evt)) : (await api.patch(`/tasks/${t.id}`, body)).data;
       if (!isStatus && data.notice) toast(data.notice);
       load();
     } catch (err) { toast.error(err.message); }
@@ -331,6 +273,7 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
           { label: 'Copy link', icon: Link2, onClick: () => { navigator.clipboard?.writeText(`${location.origin}/tasks/${t.id}`); toast.success('Link copied'); } },
           { label: 'Duplicate', icon: Copy, onClick: duplicate },
           { label: 'Log time manually', icon: Clock, onClick: () => setLogOpen(true) },
+          t.canEdit && { label: t.archived ? 'Restore from archive' : 'Archive', icon: Archive, onClick: async () => { try { await api.patch(`/tasks/${t.id}`, { archived: !t.archived }); if (!t.archived) celebrate('archive'); else toast.success('Restored'); load(); } catch (err) { toast.error(err.message); } } },
           t.canDelete && '-',
           t.canDelete && { label: 'Delete task', icon: Trash2, danger: true, onClick: remove },
         ]} />
@@ -366,7 +309,7 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
           </div>
         </div>
 
-        <StatusStepper status={t.status} disabled={!t.canEdit} onChange={(s) => patch({ status: s }, true)} />
+        <StatusStepper status={t.status} disabled={!t.canEdit} onChange={(s, e) => patch({ status: s }, true, e)} />
 
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="block"><span className="label">Assignees</span><UserPicker compact users={assignable} value={t.assignees.map((a) => a.id)} disabled={!t.canEdit || !can('tasks.assign')} onChange={(ids) => patch({ assigneeIds: ids })} placeholder="Unassigned" /></label>
@@ -379,10 +322,11 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
         <Tabs value={tab} onChange={setTab} tabs={[
           { value: 'overview', label: 'Overview' },
           { value: 'subtasks', label: 'Subtasks', count: t.descendants.length || undefined },
-          { value: 'comments', label: 'Comments', count: t.Comments.length || undefined },
+          { value: 'comments', label: 'Comments', count: t.Comments.filter((c) => c.kind !== 'review').length || undefined },
+          { value: 'review', label: 'Review', count: t.Comments.filter((c) => c.kind === 'review' && !c.resolved).length || undefined },
           { value: 'time', label: 'Time', count: t.TimeLogs.length || undefined },
           { value: 'depends', label: 'Depends', count: (t.blockers.length + t.blocking.length) || undefined },
-          { value: 'files', label: 'Files', count: t.Attachments.length || undefined },
+          { value: 'files', label: 'Files', count: t.Attachments.filter((a) => !a.commentId).length || undefined },
           { value: 'activity', label: 'Activity' },
         ]} />
 
@@ -448,6 +392,14 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
         )}
 
         {tab === 'comments' && <Comments task={t} onPosted={load} />}
+        {tab === 'review' && (
+          <ReviewBoard files={t.Attachments.filter((a) => !a.commentId)} comments={t.Comments}
+            post={async (fd) => { await api.post(`/tasks/${t.id}/comments`, fd); load(); }}
+            setStatus={async (f, status, e) => { try { await api.patch(`/tasks/attachments/${f.id}`, { reviewStatus: status }); if (status === 'approved') celebrate('done', pointOf(e)); load(); } catch (err) { toast.error(err.message); } }}
+            resolve={async (c, v) => { try { await api.patch(`/tasks/comments/${c.id}`, { resolved: v }); load(); } catch (err) { toast.error(err.message); } }}
+            upload={(files) => upload(files)}
+            shareToggle={(f) => t.clientVisible && <button type="button" onClick={async () => { await api.patch(`/tasks/attachments/${f.id}`, { clientVisible: !f.clientVisible }); load(); }} className={clsx('chip border py-1', f.clientVisible ? 'border-cobalt/40 bg-cobalt/10 text-cobalt' : 'border-line text-muted')}>{f.clientVisible ? <><Globe size={11} />Client can review</> : <><Lock size={11} />Team only</>}</button>} />
+        )}
 
         {tab === 'time' && (
           <div className="space-y-4">
@@ -471,9 +423,9 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
           <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); upload(e.dataTransfer.files); }}>
             <div className="mb-3 flex justify-end"><button type="button" className="btn-ghost btn-sm" onClick={() => fileRef.current?.click()}><Paperclip size={13} />Attach files</button></div>
             <input ref={fileRef} type="file" multiple hidden onChange={(e) => { upload(e.target.files); e.target.value = ''; }} />
-            {t.Attachments.length ? (
+            {t.Attachments.some((a) => !a.commentId) ? (
               <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
-                {t.Attachments.map((a) => (
+                {t.Attachments.filter((a) => !a.commentId).map((a) => (
                   <li key={a.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
                     <Paperclip size={14} className="text-muted" />
                     <a href={fileUrl(a.id)} className="min-w-0 flex-1 truncate hover:underline">{a.originalName}</a>

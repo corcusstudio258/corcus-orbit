@@ -17,6 +17,7 @@ import {
 import { BurndownChart, StatusDonut, PriorityBars } from '../components/Charts';
 import TaskExplorer from '../components/TaskExplorer';
 import Gantt from '../components/Gantt';
+import Pipeline from '../components/Pipeline';
 import MonthCalendar from '../components/MonthCalendar';
 import { useAskAi, useComposer, useOpenTask } from '../components/Layout';
 import { ActivityFeed } from './Dashboard';
@@ -344,7 +345,7 @@ export default function ProjectDetail() {
       <div className="mb-5"><Tabs value={tab} onChange={setTab} tabs={[
         { value: 'overview', label: 'Overview', icon: LayoutDashboard },
         { value: 'list', label: 'List', icon: List, count: p.taskCount },
-        { value: 'board', label: 'Board', icon: Columns3 },
+        { value: 'board', label: 'Pipeline', icon: Columns3 },
         { value: 'timeline', label: 'Timeline', icon: CalendarRange },
         { value: 'calendar', label: 'Calendar', icon: CalendarDays },
         { value: 'sprints', label: 'Sprints', icon: Zap },
@@ -354,7 +355,7 @@ export default function ProjectDetail() {
 
       {tab === 'overview' && <Overview p={p} reload={reload} />}
       {tab === 'list' && <TaskExplorer fixed={{ projectId: p.id }} storageKey={`p-list-${p.id}`} defaultView="list" defaultGroup={p.Sections.length ? 'section' : 'status'} composeDefaults={{ projectId: p.id }} sections={p.Sections} onAddSection={addSection} />}
-      {tab === 'board' && <TaskExplorer key="board" fixed={{ projectId: p.id }} storageKey={`p-board-${p.id}`} defaultView="board" defaultGroup="status" composeDefaults={{ projectId: p.id }} sections={p.Sections} onAddSection={addSection} />}
+      {tab === 'board' && <Pipeline project={p} reloadProject={reload} />}
       {tab === 'timeline' && <Gantt projectId={p.id} />}
       {tab === 'calendar' && <ProjectCalendar p={p} />}
       {tab === 'sprints' && <Sprints p={p} reload={reload} />}

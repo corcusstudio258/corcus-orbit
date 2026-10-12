@@ -1,13 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Plus, Building2, Phone, Mail, KeyRound, Inbox, Pencil, MessageCircle } from 'lucide-react';
-import api from '../lib/api';
+import { Plus, Building2, Phone, Mail, KeyRound, Inbox, Pencil, MessageCircle, CheckCircle2, Hourglass, Eye, EyeOff, Upload, Trash2, Download, FileText, ClipboardList } from 'lucide-react';
+import api, { clientFileUrl } from '../lib/api';
 import useFetch from '../lib/useFetch';
 import { useAuth, useLive } from '../context/AuthContext';
 import { useProjects } from '../lib/directory';
 import { OrbitRing, PageLoader, Empty, Modal, Field, ColorPicker, Avatar, UserPicker, Segmented } from '../components/ui';
-import { PROJECT_STATUS, ago, PRIORITY } from '../lib/format';
+import { PROJECT_STATUS, ago, PRIORITY, bytes } from '../lib/format';
 import { useDirectory } from '../lib/directory';
 
 function ClientForm({ open, onClose, client, onSaved }) {
@@ -42,18 +42,42 @@ function ClientForm({ open, onClose, client, onSaved }) {
   );
 }
 
+export function ClientLogo({ c, size = 64 }) {
+  if (c.logo) return <span className="grid shrink-0 place-items-center overflow-hidden rounded-2xl border border-line bg-surface" style={{ width: size, height: size }}><img src={clientFileUrl(c.logo, true)} alt={`${c.name} logo`} className="h-full w-full object-contain p-1.5" /></span>;
+  return <span className="grid shrink-0 place-items-center rounded-2xl font-display font-semibold text-white" style={{ width: size, height: size, background: c.color, fontSize: size * 0.4 }}>{c.name[0]}</span>;
+}
+
+async function approve(c, reload) {
+  try { await api.post(`/clients/${c.id}/approve`); toast.success(`${c.name} is approved. They can sign in now.`); reload(); } catch (e) { toast.error(e.message); }
+}
+
 export default function Clients() {
   const { can } = useAuth();
   const { data, loading, reload } = useFetch('/clients');
   const [open, setOpen] = useState(false);
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between"><h1 className="text-2xl font-semibold">Clients</h1>{can('clients.manage') && <button type="button" className="btn-primary" onClick={() => setOpen(true)}><Plus size={16} />New client</button>}</div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-semibold">Clients</h1><p className="text-sm text-muted">Clients can also sign up themselves from the sign-in page.</p></div>{can('clients.manage') && <button type="button" className="btn-primary" onClick={() => setOpen(true)}><Plus size={16} />New client</button>}</div>
+      {data?.some((c) => c.status === 'pending') && (
+        <section className="panel border-amber/40 p-5">
+          <h2 className="mb-3 flex items-center gap-2 font-semibold"><Hourglass size={16} className="text-amber" />Waiting for approval</h2>
+          <ul className="space-y-2">
+            {data.filter((c) => c.status === 'pending').map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface p-3">
+                <ClientLogo c={c} size={40} />
+                <Link to={`/clients/${c.id}`} className="min-w-0 flex-1"><span className="block truncate font-semibold hover:underline">{c.name}</span><span className="text-xs text-muted">{[c.industry, c.email].filter(Boolean).join(', ')}, signed up {ago(c.createdAt)}</span></Link>
+                <Link to={`/clients/${c.id}`} className="btn-ghost btn-sm">Review details</Link>
+                {can('clients.manage') && <button type="button" className="btn-primary btn-sm" onClick={() => approve(c, reload)}><CheckCircle2 size={13} />Approve</button>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {loading ? <PageLoader /> : !data.length ? <div className="panel"><Empty icon={Building2} title="No clients yet" body="Add a client, then give them a portal login so they can follow progress." /></div> : (
         <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-          {data.map((c) => (
+          {data.filter((c) => c.status !== 'pending').map((c) => (
             <Link key={c.id} to={`/clients/${c.id}`} className="panel flex items-center gap-4 p-5 transition hover:border-cobalt/40">
-              <OrbitRing value={c.progress} size={64} color={c.color} />
+              <div className="relative"><OrbitRing value={c.progress} size={64} color={c.color} label={!c.logo} />{c.logo && <span className="absolute inset-[10px] overflow-hidden rounded-full bg-surface"><img src={clientFileUrl(c.logo, true)} alt="" className="h-full w-full object-contain p-1" /></span>}</div>
               <div className="min-w-0 flex-1">
                 <h3 className="truncate text-lg font-semibold">{c.name}</h3>
                 <div className="text-xs text-muted">{[c.industry, c.city].filter(Boolean).join(', ') || 'Client'}</div>
@@ -121,6 +145,64 @@ function PortalLogin({ client, onSaved }) {
   );
 }
 
+function BusinessProfile({ c, canManage }) {
+  const [secrets, setSecrets] = useState(null);
+  const answers = c.onboarding || {};
+  const rows = (c.questions || []).filter((q) => answers[q.id] !== undefined && q.type !== 'secret');
+  if (!rows.length && !c.hasSecrets) return null;
+  const reveal = async () => { if (secrets) { setSecrets(null); return; } try { setSecrets((await api.get(`/clients/${c.id}/secrets`)).data); } catch (e) { toast.error(e.message); } };
+  return (
+    <section className="panel p-5">
+      <h2 className="mb-4 flex items-center gap-2 font-semibold"><ClipboardList size={16} className="text-cobalt" />Business profile</h2>
+      <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+        {rows.map((q) => {
+          const v = Array.isArray(answers[q.id]) ? answers[q.id].join(', ') : String(answers[q.id]);
+          return <div key={q.id} className="min-w-0"><dt className="text-xs text-muted">{q.label}</dt><dd className="break-words text-sm font-medium">{/^https?:\/\//.test(v) ? <a href={v} target="_blank" rel="noreferrer" className="link">{v}</a> : v}</dd></div>;
+        })}
+      </dl>
+      {c.hasSecrets && canManage && (
+        <div className="mt-4 rounded-xl border border-line p-3">
+          <div className="flex items-center gap-2 text-sm"><KeyRound size={15} className="text-amber" /><span className="font-semibold">Saved credentials</span><span className="text-xs text-muted">Encrypted. Viewing is logged.</span>
+            <button type="button" className="btn-ghost btn-sm ml-auto" onClick={reveal}>{secrets ? <><EyeOff size={13} />Hide</> : <><Eye size={13} />Reveal</>}</button></div>
+          {secrets && <dl className="mt-3 space-y-1.5">{Object.entries(secrets).map(([k, v]) => <div key={k} className="flex gap-3 text-sm"><dt className="w-40 shrink-0 text-muted">{(c.questions || []).find((q) => q.id === k)?.label || k}</dt><dd className="select-all font-mono">{v}</dd></div>)}</dl>}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ClientFiles({ c, reload, canManage }) {
+  const ref = useRef(null);
+  const [cat, setCat] = useState('document');
+  const upload = async (list) => {
+    if (!list?.length) return;
+    const fd = new FormData(); [...list].forEach((f) => fd.append('files', f)); fd.append('category', cat);
+    const t = toast.loading('Uploading');
+    try { await api.post(`/clients/${c.id}/files`, fd); toast.success('Uploaded', { id: t }); reload(); } catch (e) { toast.error(e.message, { id: t }); }
+  };
+  const remove = async (f) => { try { await api.delete(`/clients/${c.id}/files/${f.id}`); reload(); } catch (e) { toast.error(e.message); } };
+  const LABEL = { logo: 'Logo', brand: 'Brand', document: 'Document', other: 'Other' };
+  return (
+    <section className="panel p-5">
+      <div className="mb-3 flex items-center gap-2"><h2 className="flex items-center gap-2 font-semibold"><FileText size={16} className="text-violet" />Logo and files</h2>
+        {canManage && <div className="ml-auto flex gap-2"><select className="input !w-auto !py-1 text-xs" value={cat} onChange={(e) => setCat(e.target.value)}><option value="logo">Logo</option><option value="brand">Brand</option><option value="document">Document</option><option value="other">Other</option></select><button type="button" className="btn-ghost btn-sm" onClick={() => ref.current?.click()}><Upload size={13} />Upload</button></div>}
+        <input ref={ref} type="file" multiple={cat !== 'logo'} accept={cat === 'logo' ? 'image/*' : undefined} hidden onChange={(e) => { upload(e.target.files); e.target.value = ''; }} />
+      </div>
+      <ul className="space-y-1.5">
+        {(c.files || []).map((f) => (
+          <li key={f.id} className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-sm hover:bg-sunken/60">
+            <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-sunken">{/^image\//.test(f.mime) ? <img src={clientFileUrl(f.id, true)} alt="" className="h-full w-full object-cover" loading="lazy" /> : <FileText size={15} className="text-muted" />}</span>
+            <span className="min-w-0 flex-1"><span className="block truncate font-medium">{f.originalName}</span><span className="text-[11px] text-muted">{LABEL[f.category]}{String(c.logo) === String(f.id) ? ' (current logo)' : ''}, {bytes(f.size)}, {f.uploader ? f.uploader.name : 'at sign-up'}</span></span>
+            <a href={clientFileUrl(f.id)} className="rounded p-1 text-muted hover:text-ink" aria-label="Download"><Download size={14} /></a>
+            {canManage && <button type="button" onClick={() => remove(f)} className="rounded p-1 text-muted hover:text-ember" aria-label="Delete"><Trash2 size={14} /></button>}
+          </li>
+        ))}
+        {!c.files?.length && <li className="py-2 text-sm text-muted">No files yet. Clients can upload their logo and brand files from their portal.</li>}
+      </ul>
+    </section>
+  );
+}
+
 export function ClientDetail() {
   const { id } = useParams();
   const { can } = useAuth();
@@ -131,7 +213,7 @@ export function ClientDetail() {
   return (
     <div className="space-y-5">
       <section className="panel flex flex-wrap items-center gap-5 p-6">
-        <span className="grid h-16 w-16 place-items-center rounded-2xl font-display text-2xl font-semibold text-white" style={{ background: c.color }}>{c.name[0]}</span>
+        <ClientLogo c={c} size={64} />
         <div className="min-w-0 flex-1">
           <h1 className="text-2xl font-semibold">{c.name}</h1>
           <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted">
@@ -142,9 +224,15 @@ export function ClientDetail() {
           </div>
           {c.notes && <p className="mt-2 max-w-2xl text-sm text-muted">{c.notes}</p>}
         </div>
-        {can('clients.manage') && <button type="button" className="btn-ghost" onClick={() => setEdit(true)}><Pencil size={15} />Edit</button>}
+        <div className="flex gap-2">
+          {c.status === 'pending' && can('clients.manage') && <button type="button" className="btn-primary" onClick={() => approve(c, reload)}><CheckCircle2 size={15} />Approve sign-up</button>}
+          {can('clients.manage') && <button type="button" className="btn-ghost" onClick={() => setEdit(true)}><Pencil size={15} />Edit</button>}
+        </div>
       </section>
+      {c.status === 'pending' && <p className="flex items-center gap-2 rounded-xl bg-amber/10 px-4 py-2.5 text-sm text-amber"><Hourglass size={15} />Signed up from the portal {ago(c.createdAt)}. They can't sign in until you approve.</p>}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <div className="space-y-5">
+        <BusinessProfile c={c} canManage={can('clients.manage')} />
         <section className="panel p-5">
           <h2 className="mb-4 font-semibold">Projects</h2>
           <div className="space-y-3">
@@ -157,8 +245,10 @@ export function ClientDetail() {
             {!c.Projects.length && <p className="text-sm text-muted">No projects for this client yet.</p>}
           </div>
         </section>
+        </div>
         <div className="space-y-5">
           {can('clients.manage') && <PortalLogin client={c} onSaved={reload} />}
+          <ClientFiles c={c} reload={reload} canManage={can('clients.manage')} />
           <section className="panel p-5">
             <h2 className="mb-3 flex items-center gap-2 font-semibold"><Inbox size={16} className="text-amber" />Requests</h2>
             <ul className="space-y-2 text-sm">

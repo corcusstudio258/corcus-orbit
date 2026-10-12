@@ -17,7 +17,7 @@ const wrap = (f) => (req, res) => f(req, res).catch((e) => {
 const TZ = 'Asia/Kolkata';
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: TZ });
 const istMinutes = (d) => { const t = new Date(d).toLocaleTimeString('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }); const [h, m] = t.split(':').map(Number); return h * 60 + m; };
-const canSeeTeam = (req) => req.can('dashboard.team') || req.can('users.manage');
+const canSeeTeam = (req) => req.can('dashboard.team') || req.can('users.manage') || req.can('attendance.manage');
 
 // ---------- attendance ----------
 router.get('/attendance/today', wrap(async (req, res) => {
@@ -87,7 +87,7 @@ router.get('/attendance/team', wrap(async (req, res) => {
   });
 }));
 
-router.post('/attendance/mark', requirePerm('users.manage', 'dashboard.team'), wrap(async (req, res) => {
+router.post('/attendance/mark', requirePerm('attendance.manage'), wrap(async (req, res) => {
   const { userId, date, status, note } = req.body;
   if (!['present', 'late', 'half_day', 'absent', 'remote', 'leave'].includes(status)) return res.status(400).json({ error: 'Pick a valid status.' });
   const [rec] = await Attendance.findOrCreate({ where: { userId, date }, defaults: { status } });
@@ -97,7 +97,7 @@ router.post('/attendance/mark', requirePerm('users.manage', 'dashboard.team'), w
   res.json(rec);
 }));
 
-router.get('/attendance/export', requirePerm('users.manage', 'dashboard.team'), wrap(async (req, res) => {
+router.get('/attendance/export', requirePerm('attendance.manage'), wrap(async (req, res) => {
   const month = req.query.month || today().slice(0, 7);
   const rows = await Attendance.findAll({ where: { date: { [Op.like]: `${month}%` } }, include: [{ model: User, attributes: ['name', 'email'] }], order: [['date', 'ASC']] });
   const t = (d) => (d ? new Date(d).toLocaleTimeString('en-IN', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }) : '');

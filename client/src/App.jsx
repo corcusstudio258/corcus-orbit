@@ -9,7 +9,9 @@ import MyTasks from './pages/MyTasks';
 import Projects from './pages/Projects';
 import ProjectDetail from './pages/ProjectDetail';
 import { Board, Calendar, ActivityPage, TaskPage } from './pages/Work';
-import { PortalLayout, PortalHome, PortalProject, PortalTask, PortalRequests, PortalDoc } from './portal/Portal';
+import { PortalLayout, PortalHome, PortalProject, PortalTask, PortalRequests, PortalDoc, PortalReview, PortalProfile } from './portal/Portal';
+import SetPassword from './pages/SetPassword';
+import Signup from './pages/Signup';
 
 // Less-visited screens load on demand to keep the first paint light.
 const Clients = lazy(() => import('./pages/Clients'));
@@ -58,7 +60,12 @@ export default function App() {
         <Route path="tasks/:id" element={<PortalTask />} />
         <Route path="docs/:id" element={<PortalDoc />} />
         <Route path="requests" element={<PortalRequests />} />
+        <Route path="review" element={<PortalReview />} />
+        <Route path="profile" element={<PortalProfile />} />
       </Route>
+      <Route path="/signup" element={loading ? <PageLoader /> : user ? <Navigate to={isClient ? '/portal' : '/'} replace /> : <Signup />} />
+      <Route path="/accept" element={<SetPassword purpose="invite" />} />
+      <Route path="/reset" element={<SetPassword purpose="reset" />} />
       <Route element={<Gate><Layout /></Gate>}>
         <Route index element={<Dashboard />} />
         <Route path="my-tasks" element={<MyTasks />} />

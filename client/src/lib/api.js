@@ -33,3 +33,4 @@ export async function download(url, filename) {
   a.href = href; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(href), 2000);
 }
+export const clientFileUrl = (id, inline) => `${import.meta.env.VITE_API_URL || '/api'}/client-files/${id}?t=${encodeURIComponent(getToken() || '')}${inline ? '&inline=1' : ''}`;

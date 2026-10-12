@@ -199,6 +199,7 @@ async function demo() {
   await points.award(e1.id, 20, 'kudos', 'Kudos from Riya Sinha: brilliant unboxing reel edit', null);
   await points.award(e3.id, 15, 'kudos', 'Kudos from Aman Verma: great CPL on the clinic campaign', null);
 
+  await require('./config/migrate').DATA_STEPS[3](); // every project gets a pipeline
   console.log('\nDemo workspace ready. Every account uses the password  Orbit@123\n');
   console.log('  Admin      admin@corcus.in');
   console.log('  Manager    manager@corcus.in');

@@ -40,6 +40,10 @@ async function createTaskRecord(data, actorId, opts = {}) {
         const sec = await Section.findOne({ where: { projectId, name: data.sectionName }, transaction: tx });
         sectionId = sec?.id || null;
       }
+      if (!sectionId) {
+        const first = await Section.findOne({ where: { projectId }, order: [['order', 'ASC'], ['id', 'ASC']], transaction: tx });
+        sectionId = first?.id || null;
+      }
     }
     const status = STATUSES.includes(data.status) ? data.status : 'todo';
     const maxPos = await Task.max('position', { where: { parentId: parent ? parent.id : null, status }, transaction: tx });

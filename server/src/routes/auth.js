@@ -49,10 +49,15 @@ router.post('/setup', async (req, res) => {
 router.post('/login', limiter, async (req, res) => {
   const { email, password } = req.body;
   const user = await User.scope('withPassword').findOne({ where: { email: String(email || '').toLowerCase().trim() } });
+  if (user && !user.isActive && String(user.invitePurpose || '').startsWith('invite')) return res.status(403).json({ error: 'Your invite is waiting. Open the link we sent to your email or WhatsApp to set your password.' });
   if (!user || !(await bcrypt.compare(password || '', user.passwordHash))) {
     return res.status(401).json({ error: 'Email or password is incorrect.' });
   }
-  if (!user.isActive) return res.status(403).json({ error: 'Your account has been deactivated. Contact your admin.' });
+  if (!user.isActive) {
+    if (String(user.invitePurpose || '').startsWith('invite')) return res.status(403).json({ error: 'Your invite is waiting. Open the link we sent to your email or WhatsApp to set your password.' });
+    if (user.Client?.status === 'pending' || (await Client.findByPk(user.clientId || 0))?.status === 'pending') return res.status(403).json({ error: 'Thanks for signing up. We will email you as soon as your account is approved.' });
+    return res.status(403).json({ error: 'Your account has been deactivated. Contact your admin.' });
+  }
   res.json({ token: signToken(user), ...(await mePayload(user.id)) });
 });
 
@@ -77,5 +82,41 @@ router.patch('/me', auth, async (req, res) => {
 });
 
 router.get('/permissions', auth, (req, res) => res.json(PERMISSIONS));
+
+// ---------- invites and password resets ----------
+const invites = require('../services/invites');
+const firebase = require('../services/firebase');
+const tokenLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many attempts. Try again in a few minutes.' } });
+
+router.get('/token', tokenLimiter, async (req, res) => {
+  const u = await invites.find(req.query.token);
+  if (!u || (req.query.email && u.email !== String(req.query.email).toLowerCase())) return res.status(404).json({ error: 'This link has expired or was already used. Ask for a new one.' });
+  const company = await settings.get('company');
+  const [purpose, via] = String(u.invitePurpose || 'reset').split('|');
+  res.json({ purpose, name: u.name, email: u.email, firebase: via === 'fb', company: { name: company.name } });
+});
+
+router.post('/accept', tokenLimiter, async (req, res) => {
+  const { token, password, oobCode } = req.body;
+  const u = await invites.find(token);
+  if (!u) return res.status(404).json({ error: 'This link has expired or was already used. Ask for a new one.' });
+  if (!password || password.length < 8) return res.status(400).json({ error: 'Use at least 8 characters.' });
+  if (String(u.invitePurpose || '').endsWith('|fb')) {
+    if (!oobCode) return res.status(400).json({ error: 'Open this page from the link in your email.' });
+    try { await firebase.verify(u.email, oobCode); } catch (e) { return res.status(400).json({ error: e.message }); }
+  }
+  const full = await User.scope('withPassword').findByPk(u.id);
+  full.passwordHash = await bcrypt.hash(password, 10);
+  full.isActive = true; full.inviteToken = null; full.inviteExpires = null; full.invitePurpose = null;
+  await full.save();
+  res.json({ token: signToken(full), ...(await mePayload(full.id)) });
+});
+
+router.post('/forgot', tokenLimiter, async (req, res) => {
+  const email = String(req.body.email || '').toLowerCase().trim();
+  const u = email && await User.findOne({ where: { email } });
+  if (u && u.isActive) { try { await invites.issue(req, u, 'reset'); } catch (e) { console.error('[forgot]', e.message); } }
+  res.json({ ok: true, message: 'If that email has an account, a reset link is on its way (email or WhatsApp).' });
+});
 
 module.exports = { router, ensureRoles };
