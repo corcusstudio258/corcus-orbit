@@ -2,7 +2,7 @@
 // and only to tasks/comments/files the team has marked as visible to the client.
 const router = require('express').Router();
 const { Op } = require('sequelize');
-const { Project, Task, Milestone, Activity, User, Role, Comment, Attachment, ClientRequest, Client } = require('../models');
+const { Project, Task, Milestone, Activity, User, Role, Comment, Attachment, ClientRequest, Client, Document, Meeting } = require('../models');
 const { clientOnly } = require('../middleware/auth');
 const { projectProgress, taskProgressMap } = require('../services/progress');
 const { notify, activity } = require('../services/notify');
@@ -50,6 +50,8 @@ router.get('/overview', wrap(async (req, res) => {
     upcoming: upcoming.map((t) => ({ ...clean(t, pm), project: t.Project })),
     activity: feed,
     openRequests: await ClientRequest.count({ where: { clientId: req.user.clientId, status: 'open' } }),
+    meetings: await Meeting.findAll({ where: { clientId: req.user.clientId, inviteClient: true, startAt: { [Op.gte]: new Date(Date.now() - 3600e3) } },
+      attributes: ['id', 'title', 'agenda', 'startAt', 'endAt', 'link', 'location'], order: [['startAt', 'ASC']], limit: 5 }),
   });
 }));
 
@@ -74,6 +76,7 @@ router.get('/projects/:id', wrap(async (req, res) => {
     }),
     tasks: tasks.map((t) => clean(t, pm)),
     files: files.map((f) => ({ id: f.id, name: f.originalName, size: f.size, mime: f.mime, createdAt: f.createdAt, taskId: f.taskId, by: f.uploader?.name })),
+    docs: await Document.findAll({ where: { projectId: p.id, clientVisible: true, visibility: 'workspace' }, attributes: ['id', 'title', 'icon', 'updatedAt'], order: [['updatedAt', 'DESC']] }),
     activity: feed,
   });
 }));
@@ -130,6 +133,12 @@ router.post('/tasks/:id/review', wrap(async (req, res) => {
     summary: approve ? `approved ${t.key} "${t.title}"` : `requested changes on ${t.key} "${t.title}"`, taskId: t.id, projectId: t.projectId, clientVisible: true });
   socket.toStaff('task:changed', { id: t.id, projectId: t.projectId });
   res.json({ ok: true, status: t.status });
+}));
+
+router.get('/docs/:id', wrap(async (req, res) => {
+  const d = await Document.findByPk(req.params.id, { include: [{ model: Project, attributes: ['id', 'name', 'clientId', 'clientVisible'] }] });
+  if (!d || !d.clientVisible || d.visibility !== 'workspace' || d.Project?.clientId !== req.user.clientId || !d.Project.clientVisible) return res.status(404).json({ error: 'Document not found.' });
+  res.json({ id: d.id, title: d.title, icon: d.icon, content: d.content, updatedAt: d.updatedAt, project: { id: d.Project.id, name: d.Project.name } });
 }));
 
 router.get('/requests', wrap(async (req, res) => {

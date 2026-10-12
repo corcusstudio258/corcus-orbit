@@ -2,51 +2,119 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: dark; }
+/*
+  Orbit design tokens.
+  Light: porcelain canvas, indigo-ink text, turmeric (haldi) as the brand accent.
+  The "night" panel is the one dark surface: the dashboard's orbit hero and the login art.
+*/
+:root {
+  color-scheme: light;
+  --c-canvas: 244 246 251;
+  --c-surface: 255 255 255;
+  --c-sunken: 238 241 248;
+  --c-line: 226 230 240;
+  --c-ink: 15 21 53;
+  --c-muted: 91 99 134;
+  --c-faint: 141 148 179;
+  --c-brand: 255 194 26;
+  --c-brand-ink: 15 21 53;
+  --c-brand-soft: 255 244 204;
+  --c-night: 15 21 53;
+  --c-night-2: 27 35 82;
+  --c-night-line: 54 64 120;
+  --c-cobalt: 61 90 254;
+  --c-violet: 139 92 246;
+  --c-leaf: 31 169 113;
+  --c-amber: 240 140 0;
+  --c-ember: 229 72 77;
+  --c-teal: 14 165 183;
+  --c-s1: 61 90 254;
+  --c-s2: 199 106 0;
+}
+
+html.dark {
+  color-scheme: dark;
+  --c-canvas: 10 14 36;
+  --c-surface: 18 24 54;
+  --c-sunken: 24 31 68;
+  --c-line: 38 47 92;
+  --c-ink: 233 236 250;
+  --c-muted: 154 163 199;
+  --c-faint: 110 119 160;
+  --c-brand-soft: 66 54 20;
+  --c-night: 7 10 28;
+  --c-night-2: 20 26 60;
+  --c-night-line: 48 58 110;
+  --c-cobalt: 112 134 255;
+  --c-violet: 167 139 250;
+  --c-leaf: 52 199 140;
+  --c-amber: 255 170 60;
+  --c-ember: 255 107 112;
+  --c-s1: 112 134 255;
+  --c-s2: 204 122 10;
+}
 
 html, body, #root { min-height: 100%; }
 body {
-  @apply bg-space text-star font-sans antialiased;
-  background-image:
-    radial-gradient(1200px 520px at 78% -12%, rgba(143,123,255,.22), transparent 60%),
-    radial-gradient(900px 480px at -10% 8%, rgba(61,224,242,.12), transparent 60%),
-    radial-gradient(circle at 1px 1px, rgba(150,168,255,.08) 1px, transparent 0);
-  background-size: auto, auto, 28px 28px;
-  background-attachment: fixed;
-  font-feature-settings: 'tnum' 1;
+  @apply bg-canvas text-ink font-sans antialiased;
+  font-size: 15px;
+  font-feature-settings: 'tnum' 1, 'cv11' 1;
 }
+h1, h2, h3, h4 { @apply font-display tracking-tight text-ink; font-variation-settings: 'opsz' 48; }
+.bg-night :is(h1, h2, h3, h4) { color: inherit; }
 
-h1, h2, h3 { @apply font-display tracking-tight; }
-
-::selection { background: rgba(61,224,242,.35); }
+::selection { background: rgb(var(--c-brand) / 0.45); }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: rgba(150,168,255,.18); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb { background: rgb(var(--c-ink) / 0.14); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-track { background: transparent; }
-
-:focus-visible { outline: 2px solid #3DE0F2; outline-offset: 2px; border-radius: 8px; }
+:focus-visible { outline: 2px solid rgb(var(--c-cobalt)); outline-offset: 2px; border-radius: 8px; }
 
 @layer components {
-  .panel { @apply rounded-2xl border border-line bg-space-2/70 backdrop-blur-xl shadow-panel; }
-  .panel-quiet { @apply rounded-xl border border-line bg-space-2/40; }
-  .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed; }
-  .btn-primary { @apply btn text-space bg-signal hover:brightness-110 shadow-glow; }
-  .btn-ghost { @apply btn text-star/90 border border-line bg-white/[0.03] hover:bg-white/[0.07]; }
-  .btn-danger { @apply btn text-rose border border-rose/30 bg-rose/10 hover:bg-rose/20; }
-  .btn-sm { @apply px-2.5 py-1.5 text-xs rounded-lg; }
-  .input { @apply w-full rounded-xl border border-line bg-space-deep/60 px-3 py-2 text-sm text-star placeholder:text-mist/60 outline-none transition focus:border-signal/60 focus:ring-2 focus:ring-signal/20; }
-  .label { @apply mb-1.5 block text-xs font-semibold text-mist; }
-  .chip { @apply inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold; }
-  .link { @apply text-signal hover:underline underline-offset-4; }
-  .tab { @apply rounded-lg px-3 py-1.5 text-sm font-semibold text-mist hover:text-star transition; }
-  .tab-active { @apply bg-white/[0.07] text-star; }
+  .panel { @apply rounded-xl2 border border-line bg-surface shadow-panel; }
+  .panel-quiet { @apply rounded-xl border border-line bg-sunken/50; }
+  .card { @apply rounded-xl border border-line bg-surface; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-primary { @apply btn bg-brand text-brand-ink hover:bg-[#FFB800] active:translate-y-px; }
+  .btn-ink { @apply btn bg-ink text-surface hover:bg-ink/90; }
+  .btn-ghost { @apply btn border border-line bg-surface text-ink hover:bg-sunken; }
+  .btn-soft { @apply btn bg-sunken text-ink hover:bg-line/70; }
+  .btn-danger { @apply btn border border-ember/30 bg-ember/10 text-ember hover:bg-ember/15; }
+  .btn-ai { @apply btn border border-violet/30 bg-violet/10 text-violet hover:bg-violet/15; }
+  .btn-sm { @apply rounded-lg px-2.5 py-1.5 text-xs; }
+  .input { @apply w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition placeholder:text-faint focus:border-cobalt/60 focus:ring-4 focus:ring-cobalt/10 disabled:bg-sunken disabled:text-muted; }
+  .label { @apply mb-1.5 block text-xs font-semibold text-muted; }
+  .chip { @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold; }
+  .link { @apply font-semibold text-cobalt hover:underline underline-offset-4; }
+  .tab { @apply rounded-lg px-3 py-1.5 text-sm font-semibold text-muted transition hover:text-ink; }
+  .tab-active { @apply bg-surface text-ink shadow-[0_1px_2px_rgb(var(--c-ink)/0.08)]; }
+  .kbd { @apply rounded-md border border-line bg-sunken px-1.5 py-0.5 font-sans text-[10px] font-semibold text-muted; }
+  .section-title { @apply font-display text-base font-semibold text-ink; }
+  .eyebrow { @apply text-xs font-medium text-muted; }
 }
 
-/* The orbit dot pulses once when progress changes */
-@keyframes orbit-in { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: scale(1); } }
-.orbit-dot { animation: orbit-in .5s ease-out; transform-box: fill-box; transform-origin: center; }
+/* Markdown rendered by the Markdown component */
+.md { @apply text-sm leading-relaxed text-ink; }
+.md h1 { @apply mb-3 mt-1 text-2xl font-semibold; }
+.md h2 { @apply mb-2 mt-5 text-lg font-semibold; }
+.md h3 { @apply mb-1.5 mt-4 text-base font-semibold; }
+.md p { @apply my-2; }
+.md ul { @apply my-2 list-disc space-y-1 pl-5; }
+.md ol { @apply my-2 list-decimal space-y-1 pl-5; }
+.md a { @apply text-cobalt underline underline-offset-2; }
+.md code { @apply rounded bg-sunken px-1 py-0.5 text-[0.85em]; }
+.md pre { @apply my-3 overflow-x-auto rounded-xl bg-sunken p-3; }
+.md blockquote { @apply my-3 border-l-4 border-brand pl-3 text-muted; }
+.md table { @apply my-3 w-full border-collapse text-left text-sm; }
+.md th { @apply border-b border-line px-2 py-1.5 font-semibold text-muted; }
+.md td { @apply border-b border-line/70 px-2 py-1.5; }
+.md strong { @apply font-semibold; }
+.md hr { @apply my-4 border-line; }
 
-@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-.rise { animation: rise .35s ease-out both; }
+/* Orbit hero: planets ride their rings once on load, then rest */
+@keyframes orbit-settle { from { transform: rotate(-38deg); } to { transform: rotate(0deg); } }
+.orbit-ring { transform-origin: center; transform-box: view-box; animation: orbit-settle 1.6s cubic-bezier(.16,.84,.3,1) both; }
+@keyframes ring-dot { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: scale(1); } }
+.orbit-dot { animation: ring-dot .5s ease-out; transform-box: fill-box; transform-origin: center; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

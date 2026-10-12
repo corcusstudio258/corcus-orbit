@@ -1,0 +1,214 @@
+// v2 feature checks. Needs: server on :5000 seeded with `npm run seed:demo`, started with
+// GEMINI_BASE_URL=http://localhost:5099/v1beta, and test/mock-gemini.js running.
+const BASE = process.env.API || 'http://localhost:5000/api';
+let pass = 0; let fail = 0;
+const ok = (cond, msg, extra) => { if (cond) { pass++; console.log('  ✓', msg); } else { fail++; console.log('  ✗', msg, extra !== undefined ? JSON.stringify(extra).slice(0, 300) : ''); } };
+async function call(token, method, path, body) {
+  const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch { data = text; }
+  return { status: r.status, data };
+}
+const login = async (email) => (await call(null, 'POST', '/auth/login', { email, password: 'Orbit@123' })).data.token;
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+(async () => {
+  const admin = await login('admin@corcus.in');
+  const mgr = await login('manager@corcus.in');
+  const rahul = await login('rahul@corcus.in');
+  const ankit = await login('ankit@corcus.in');
+  const client = await login('client@kasaar.in');
+  const users = (await call(admin, 'GET', '/users/directory')).data;
+  const id = (first) => users.find((u) => u.name.startsWith(first)).id;
+  const projects = (await call(admin, 'GET', '/projects')).data;
+  const KAS = projects.find((p) => p.code === 'KAS');
+  const SUN = projects.find((p) => p.code === 'SUN');
+
+  console.log('Projects & sections');
+  ok(KAS.health && typeof KAS.health.score === 'number' && KAS.daysLeft != null, 'project list carries health score and days left');
+  const pd = (await call(mgr, 'GET', `/projects/${KAS.id}`)).data;
+  ok(pd.Sections.length === 4 && pd.burndown.length > 5 && Array.isArray(pd.alerts), 'project detail: sections, burndown, alerts', Object.keys(pd));
+  const sec = (await call(mgr, 'POST', `/projects/${KAS.id}/sections`, { name: 'Influencers', color: '#0EA5B7' })).data;
+  ok(sec.id, 'section created');
+  const t1 = (await call(mgr, 'POST', '/tasks', { title: 'Influencer shortlist', projectId: KAS.id, sectionId: sec.id, status: 'backlog', assigneeIds: [id('Rahul')] })).data;
+  ok(t1.status === 'backlog' && t1.Section?.name === 'Influencers', 'task in backlog inside new section');
+  const mv = (await call(mgr, 'POST', '/tasks/reorder', { id: t1.id, status: 'todo', sectionId: pd.Sections[0].id })).data;
+  ok(mv.status === 'todo' && mv.sectionId === pd.Sections[0].id, 'board drag moves status + section');
+
+  console.log('Sprints & timeline');
+  const sprints = (await call(mgr, 'GET', `/projects/${SUN.id}/sprints`)).data;
+  ok(sprints.length === 2 && sprints.find((s) => s.status === 'active').stats.points >= 16, 'sprints with story-point stats');
+  const ns = (await call(admin, 'POST', `/projects/${SUN.id}/sprints`, { name: 'Sprint 3' })).data;
+  const st = await call(admin, 'POST', `/projects/sprints/${ns.id}/start`);
+  ok(st.status === 400, 'cannot start a second active sprint');
+  const active = sprints.find((s) => s.status === 'active');
+  const bd = (await call(admin, 'GET', `/projects/sprints/${active.id}/burndown`)).data;
+  ok(bd.total > 0 && bd.points.length > 5, 'sprint burndown');
+  const comp = (await call(admin, 'POST', `/projects/sprints/${active.id}/complete`, { moveTo: 'next' })).data;
+  ok(comp.carriedOver >= 1 && comp.movedTo === 'Sprint 3', 'completing sprint carries unfinished work to next sprint', comp);
+  const tl = (await call(mgr, 'GET', `/projects/${SUN.id}/timeline`)).data;
+  ok(tl.tasks.length > 3 && tl.dependencies.length >= 1 && tl.milestones.length === 2, 'timeline data with dependencies and milestones');
+
+  console.log('Dependencies, watchers, recurrence');
+  const all = (await call(admin, 'GET', `/tasks?projectId=${KAS.id}`)).data;
+  const meta = all.find((t) => t.title.startsWith('Meta ads'));
+  const copy = all.find((t) => t.title.startsWith('Ad copy'));
+  ok(meta.openBlockers === 1, 'blocked-by count on list');
+  const loop = await call(admin, 'POST', `/tasks/${copy.id}/dependencies`, { blockerId: meta.id });
+  ok(loop.status === 400, 'dependency loop rejected');
+  const start = (await call(ankit, 'PATCH', `/tasks/${meta.id}`, { status: 'in_progress' })).data;
+  ok(/waiting on/i.test(start.notice || ''), 'warning when starting blocked work', start.notice);
+  await call(admin, 'POST', `/tasks/${copy.id}/watch`, {});
+  await call(rahul, 'POST', `/tasks/${copy.id}/comments`, { body: 'Copy draft is in the doc' });
+  await call(admin, 'PATCH', `/tasks/${copy.id}`, { status: 'done' });
+  await wait(600);
+  const nA = (await call(ankit, 'GET', '/notifications')).data.items;
+  ok(nA.some((n) => /Unblocked/.test(n.title)), 'assignee told when blocker is done');
+  const nAdm = (await call(admin, 'GET', '/notifications')).data.items;
+  ok(nAdm.some((n) => /New comment/.test(n.title)), 'watcher notified on comment');
+  const weekly = all.find((t) => t.title.startsWith('Weekly ads report'));
+  await call(ankit, 'PATCH', `/tasks/${weekly.id}`, { status: 'done' });
+  await wait(700);
+  const after = (await call(admin, 'GET', `/tasks?projectId=${KAS.id}&q=Weekly ads report`)).data;
+  const next = after.find((t) => t.id !== weekly.id);
+  ok(next && next.recurrence?.freq === 'weekly' && new Date(next.dueDate) > new Date(weekly.dueDate) && new Date(next.dueDate).getDay() === 1, 'recurring task spawns next Monday occurrence', next);
+
+  console.log('Rewards');
+  const rw = (await call(ankit, 'GET', '/people/rewards/me')).data;
+  ok(rw.lifetime > 0 && rw.history.some((h) => h.kind === 'task_done'), 'points awarded for finished work', rw.lifetime);
+  const kd = await call(mgr, 'POST', '/people/rewards/kudos', { userId: id('Rahul'), points: 15, reason: 'Great reel' });
+  ok(kd.status === 200, 'kudos given');
+  const lb = (await call(rahul, 'GET', '/people/rewards/leaderboard?period=all')).data;
+  ok(lb.length >= 5 && lb[0].points >= lb[1].points, 'leaderboard sorted');
+
+  console.log('Attendance & workload');
+  const pin = await call(rahul, 'POST', '/people/attendance/punch-in', { mode: 'office' });
+  ok(pin.status === 200 && pin.data.inAt, 'punch in');
+  ok((await call(rahul, 'POST', '/people/attendance/punch-in', {})).status === 400, 'double punch-in blocked');
+  const pout = await call(rahul, 'POST', '/people/attendance/punch-out', {});
+  ok(pout.status === 200 && pout.data.minutes >= 1, 'punch out records minutes');
+  const teamAtt = await call(mgr, 'GET', '/people/attendance/team');
+  ok(teamAtt.status === 200 && teamAtt.data.people.length >= 8, 'manager sees team attendance');
+  ok((await call(rahul, 'GET', '/people/attendance/team')).status === 403, 'executive cannot see team attendance');
+  const csv = await call(admin, 'GET', '/people/attendance/export');
+  ok(typeof csv.data === 'string' && csv.data.startsWith('Date,Name'), 'attendance CSV export');
+  const wl = (await call(mgr, 'GET', '/people/workload')).data;
+  ok(wl.dates.length === 10 && wl.people.length >= 8 && wl.people[0].days.length === 10, 'workload grid');
+
+  console.log('Chat');
+  const chans = (await call(rahul, 'GET', '/chat/channels')).data;
+  ok(chans.some((c) => c.name === 'general') && !chans.some((c) => c.name === 'ads-war-room'), 'channels list hides private channels from non-members');
+  const gen = chans.find((c) => c.name === 'general');
+  const msg = await call(rahul, 'POST', `/chat/channels/${gen.id}/messages`, { body: 'Hello @Riya', mentions: [id('Riya')] });
+  ok(msg.status === 201, 'message posted');
+  const unread = (await call(mgr, 'GET', '/chat/unread')).data.unread;
+  ok(unread >= 1, 'unread count for others', unread);
+  const dm = (await call(rahul, 'POST', '/chat/dm', { userId: id('Priya') })).data;
+  await call(rahul, 'POST', `/chat/channels/${dm.id}/messages`, { body: 'Hi Priya' });
+  const priya = await login('priya@corcus.in');
+  ok((await call(priya, 'GET', '/chat/channels')).data.some((c) => c.kind === 'dm' && c.unread === 1), 'DM shows as unread for recipient');
+  const priv = chans.length; void priv;
+  const warRoom = (await call(mgr, 'GET', '/chat/channels')).data.find((c) => c.name === 'ads-war-room');
+  ok((await call(rahul, 'GET', `/chat/channels/${warRoom.id}/messages`)).status === 404, 'private channel blocked for non-members');
+
+  console.log('Meetings & documents');
+  const startAt = new Date(Date.now() + 2 * 864e5); const endAt = new Date(startAt.getTime() + 3600e3);
+  const mt = await call(mgr, 'POST', '/meetings', { title: 'Clinic shoot planning', startAt, endAt, link: 'https://meet.google.com/x', attendeeIds: [id('Rahul'), id('Sneha')] });
+  ok(mt.status === 201 && mt.data.attendees.length === 3, 'meeting created with attendees');
+  await wait(300);
+  ok((await call(rahul, 'GET', '/notifications')).data.items.some((n) => /invited you/.test(n.title)), 'attendee notified');
+  ok((await call(rahul, 'POST', `/meetings/${mt.data.id}/rsvp`, { response: 'maybe' })).status === 200, 'rsvp');
+  const ai1 = await call(mgr, 'POST', `/meetings/${mt.data.id}/action-items`, { items: [{ title: 'Book studio', assigneeIds: [id('Rahul')] }] });
+  ok(ai1.data.created?.length === 1, 'action items become tasks');
+  const myMeet = (await call(rahul, 'GET', '/meetings')).data;
+  ok(myMeet.some((m) => m.title === 'Clinic shoot planning') && myMeet.some((m) => m.title === 'Daily stand-up'), 'my meetings list');
+  const docP = (await call(admin, 'POST', '/documents', { title: 'Secret plan', visibility: 'private', content: 'x' })).data;
+  ok((await call(rahul, 'GET', `/documents/${docP.id}`)).status === 404, 'private doc hidden from others');
+  const docs = (await call(rahul, 'GET', '/documents')).data;
+  ok(docs.some((d) => d.title === 'Reel delivery checklist'), 'workspace docs visible');
+  const pp = (await call(client, 'GET', `/portal/projects/${KAS.id}`)).data;
+  ok(pp.docs?.length === 1 && (await call(client, 'GET', `/portal/docs/${pp.docs[0].id}`)).status === 200, 'client sees shared doc in portal');
+
+  console.log('Templates, automations, import/export, search');
+  const tpls = (await call(mgr, 'GET', '/tools/templates')).data;
+  ok(tpls.filter((t) => t.isSystem).length === 6 && tpls[0].taskCount > 0, 'built-in templates');
+  const fromTpl = (await call(admin, 'POST', '/projects', { name: 'Cosmosentials Meta launch', code: 'COS', templateId: tpls.find((t) => t.name.startsWith('Meta Ads')).id })).data;
+  ok(fromTpl.applied?.created >= 11, 'project created from template', fromTpl.applied);
+  const cosTasks = (await call(admin, 'GET', `/tasks?projectId=${fromTpl.id}`)).data;
+  ok(cosTasks.every((t) => t.dueDate) && cosTasks.some((t) => t.Section), 'template tasks have due dates and sections');
+  const saved = await call(mgr, 'POST', '/tools/templates', { name: 'Diwali campaign playbook', fromProjectId: KAS.id, category: 'Marketing' });
+  ok(saved.status === 201 && saved.data.structure.tasks.length > 3, 'project saved as template');
+  const autos = (await call(admin, 'GET', '/tools/automations')).data;
+  ok(autos.rules.length === 3 && autos.triggers['task.status'], 'default automations');
+  const rule = await call(admin, 'POST', '/tools/automations', { name: 'Thank on done', trigger: 'task.status', conditions: { status: 'done', projectId: KAS.id }, actions: [{ type: 'comment', message: 'Nice work on {{task.key}}!' }] });
+  ok(rule.status === 201, 'automation created');
+  const tgt = (await call(admin, 'POST', '/tasks', { title: 'Automation target', projectId: KAS.id })).data;
+  await call(admin, 'PATCH', `/tasks/${tgt.id}`, { status: 'done' });
+  await wait(700);
+  const tgtD = (await call(admin, 'GET', `/tasks/${tgt.id}`)).data;
+  ok(tgtD.Comments.some((c) => c.body.includes(`Nice work on ${tgt.key}`)), 'automation ran and commented');
+  ok((await call(rahul, 'POST', '/tools/automations', { name: 'x', trigger: 'task.status', actions: [{ type: 'comment' }] })).status === 403, 'executive cannot create automations');
+  const exp = await call(mgr, 'GET', `/tools/export/tasks.csv?projectId=${KAS.id}`);
+  ok(typeof exp.data === 'string' && exp.data.includes('"Key","Title"'), 'tasks CSV export');
+  const imp = (await call(mgr, 'POST', '/tools/import/tasks', { projectId: KAS.id, rows: [
+    { title: 'Imported parent', section: 'Imported', priority: 'high', assignee: 'rahul@corcus.in', due: '2026-12-01' },
+    { title: 'Imported child', parent: 'Imported parent', status: 'In progress' }, { title: '' }] })).data;
+  ok(imp.created === 2 && imp.errors.length === 1, 'CSV rows imported with parent + section', imp);
+  const srch = (await call(rahul, 'GET', '/tools/search?q=reel')).data;
+  ok(srch.tasks.length > 0, 'global search');
+
+  console.log('Health & AI without a key');
+  const h = (await call(admin, 'GET', '/ai/health')).data;
+  ok(h.projects.length >= 4 && h.alerts.length > 0, 'rule-based project health + alerts', h.alerts?.length);
+  const st0 = (await call(admin, 'GET', '/ai/status')).data;
+  ok(st0.ready === false, 'AI reports not ready without key');
+  const br0 = (await call(rahul, 'GET', '/ai/brief?refresh=1')).data;
+  ok(br0.source === 'rules' && br0.recommendations.length > 0, 'brief falls back to rules');
+  const ask0 = await call(rahul, 'POST', '/ai/ask', { messages: [{ role: 'user', text: 'what is overdue?' }] });
+  ok(ask0.status === 503 && /Settings/.test(ask0.data.error), 'assistant explains how to enable AI');
+  const sup0 = (await call(rahul, 'POST', '/ai/standup', {})).data;
+  ok(sup0.text.includes('Standup'), 'standup works without AI');
+  const rep0 = (await call(mgr, 'POST', '/ai/report', { type: 'weekly' })).data;
+  ok(rep0.markdown.startsWith('# Weekly summary') && rep0.source === 'rules', 'report works without AI');
+
+  console.log('AI with Gemini (mock)');
+  ok((await call(rahul, 'PATCH', '/settings/ai', { apiKey: 'test-key' })).status === 403, 'only admins set the AI key');
+  await call(admin, 'PATCH', '/settings/ai', { apiKey: 'wrong-key', enabled: true });
+  const bad = (await call(admin, 'POST', '/settings/ai/test')).data;
+  ok(bad.ok === false && /rejected/.test(bad.error), 'bad key error is friendly', bad);
+  const sv = (await call(admin, 'PATCH', '/settings/ai', { apiKey: 'test-key', model: 'gemini-missing-model' })).data;
+  ok(sv.apiKey.startsWith('••'), 'key stored masked');
+  const test = (await call(admin, 'POST', '/settings/ai/test')).data;
+  ok(test.ok && test.model === 'gemini-3.8-flash', 'falls back from a missing model', test);
+  const ask = (await call(rahul, 'POST', '/ai/ask', { messages: [{ role: 'user', text: 'kya overdue hai? and create a task for Chhath reel cover' }] })).data;
+  ok(ask.reply.includes('KAS-10') && ask.actions.length > 0, 'assistant answers with actions');
+  const exe = (await call(mgr, 'POST', '/ai/execute', { action: ask.actions.find((a) => a.type === 'create_task') || { type: 'create_task', task: { title: 'x', projectCode: 'KAS', priority: 'high', assigneeIds: [5] } } })).data;
+  ok(exe.ok && exe.key.startsWith('KAS-'), 'assistant action creates task', exe);
+  const draft = (await call(mgr, 'POST', '/ai/parse-task', { text: 'Rahul ko kal tak Chhath reel cover banana hai, urgent' })).data;
+  ok(draft.title && draft.projectId === KAS.id && draft.assigneeIds.includes(5) && draft.dueDate, 'quick-add parses project, person and date', draft);
+  const bk = (await call(mgr, 'POST', '/ai/breakdown', { taskId: meta.id })).data;
+  ok(bk.subtasks.length === 2 && bk.subtasks[0].title, 'breakdown suggests subtasks');
+  const br = (await call(mgr, 'GET', '/ai/brief?refresh=1')).data;
+  ok(br.source === 'gemini' && br.highlights.length, 'brief from Gemini');
+  const br2 = (await call(mgr, 'GET', '/ai/brief')).data;
+  ok(br2.at === br.at, 'brief cached');
+  const rep = (await call(mgr, 'POST', '/ai/report', { type: 'client', projectIds: [KAS.id] })).data;
+  ok(rep.source === 'gemini' && rep.markdown.includes('Weekly'), 'report from Gemini');
+  ok((await call(mgr, 'GET', '/ai/reports')).data.length >= 2, 'reports saved');
+  const plan = (await call(mgr, 'POST', '/ai/plan', { brief: 'Launch a new skincare brand on Instagram', name: 'Glow launch', startDate: '2026-10-15', dueDate: '2026-11-15' })).data;
+  ok(plan.tasks?.length && plan.sections?.length, 'project plan drafted');
+  const planned = (await call(admin, 'POST', '/projects', { name: 'Glow launch', plan })).data;
+  ok(planned.applied?.created >= 2, 'project created from AI plan', planned.applied);
+  const mn = (await call(mgr, 'POST', '/ai/meeting-notes', { meetingId: mt.data.id, notes: 'Rahul to book studio by Friday. Decided on 3 reels.' })).data;
+  ok(mn.summary && mn.actionItems.length, 'meeting notes summarised into action items');
+  const au = (await call(admin, 'POST', '/ai/automation', { text: 'When an urgent task is created tell the manager on WhatsApp' })).data;
+  ok(au.trigger && au.actions.length, 'automation drafted from English');
+  const hn = (await call(admin, 'GET', '/ai/health?narrative=1&refresh=1')).data;
+  ok(hn.narrative?.summary, 'health narrative from Gemini');
+  const wr = (await call(mgr, 'POST', '/ai/write', { mode: 'client_update', text: 'reels done' })).data;
+  ok(typeof wr.text === 'string' && wr.text.length > 0, 'writing assistant');
+  await call(admin, 'PATCH', '/settings/ai', { apiKey: '', model: 'gemini-3.8-flash' });
+
+  console.log(`\n${pass} passed, ${fail} failed`);
+  process.exit(fail ? 1 : 0);
+})().catch((e) => { console.error(e); process.exit(1); });

@@ -40,8 +40,9 @@ router.post('/setup', async (req, res) => {
   const admin = await Role.findOne({ where: { slug: 'admin' } });
   const user = await User.create({
     name, email: email.toLowerCase().trim(), phone, designation: 'Founder', roleId: admin.id,
-    passwordHash: await bcrypt.hash(password, 10), color: '#8F7BFF',
+    passwordHash: await bcrypt.hash(password, 10), color: '#3D5AFE',
   });
+  await require('../config/defaults').ensureDefaults();
   res.json({ token: signToken(user), ...(await mePayload(user.id)) });
 });
 

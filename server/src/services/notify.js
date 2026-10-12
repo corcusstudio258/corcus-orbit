@@ -15,6 +15,11 @@ const TYPE_MAP = {
   approval_result: ['approval', 'approval'],
   client_update: ['status', 'client_update'],
   client_request: ['approval', 'client_request'],
+  meeting: ['assigned', 'meeting'],
+  meeting_reminder: ['due', 'meeting'],
+  chat_mention: ['comment', 'comment'],
+  chat_dm: ['comment', 'chat'],
+  kudos: ['status', 'status'],
 };
 
 /**

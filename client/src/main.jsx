@@ -4,6 +4,8 @@ import { BrowserRouter } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import App from './App';
 import { AuthProvider } from './context/AuthContext';
+import '@fontsource-variable/bricolage-grotesque';
+import '@fontsource-variable/figtree';
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -11,7 +13,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <AuthProvider>
         <App />
-        <Toaster position="bottom-right" toastOptions={{ style: { background: '#1B2453', color: '#E8ECFF', border: '1px solid rgba(150,168,255,.2)', borderRadius: 14, fontSize: 14 } }} />
+        <Toaster position="bottom-right" toastOptions={{ style: { background: '#0F1535', color: '#FFFFFF', borderRadius: 14, fontSize: 14, padding: '10px 14px' }, success: { iconTheme: { primary: '#FFC21A', secondary: '#0F1535' } } }} />
       </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>,

@@ -52,12 +52,12 @@ export default function Clients() {
       {loading ? <PageLoader /> : !data.length ? <div className="panel"><Empty icon={Building2} title="No clients yet" body="Add a client, then give them a portal login so they can follow progress." /></div> : (
         <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
           {data.map((c) => (
-            <Link key={c.id} to={`/clients/${c.id}`} className="panel flex items-center gap-4 p-5 transition hover:border-signal/40">
+            <Link key={c.id} to={`/clients/${c.id}`} className="panel flex items-center gap-4 p-5 transition hover:border-cobalt/40">
               <OrbitRing value={c.progress} size={64} color={c.color} />
               <div className="min-w-0 flex-1">
                 <h3 className="truncate text-lg font-semibold">{c.name}</h3>
-                <div className="text-xs text-mist">{[c.industry, c.city].filter(Boolean).join(', ') || 'Client'}</div>
-                <div className="mt-2 flex gap-4 text-xs text-mist"><span>{c.activeProjects} active projects</span>{c.openRequests > 0 && <span className="text-flare">{c.openRequests} open requests</span>}</div>
+                <div className="text-xs text-muted">{[c.industry, c.city].filter(Boolean).join(', ') || 'Client'}</div>
+                <div className="mt-2 flex gap-4 text-xs text-muted"><span>{c.activeProjects} active projects</span>{c.openRequests > 0 && <span className="text-amber">{c.openRequests} open requests</span>}</div>
               </div>
             </Link>
           ))}
@@ -79,16 +79,16 @@ function PortalLogin({ client, onSaved }) {
   const toggle = async (u) => { await api.patch(`/clients/${client.id}/portal-users/${u.id}`, { isActive: !u.isActive }); onSaved(); };
   return (
     <section className="panel p-5">
-      <div className="mb-3 flex items-center justify-between"><h2 className="flex items-center gap-2 font-semibold"><KeyRound size={16} className="text-signal" />Portal logins</h2><button type="button" className="btn-ghost btn-sm" onClick={() => setOpen(true)}><Plus size={13} />Add login</button></div>
+      <div className="mb-3 flex items-center justify-between"><h2 className="flex items-center gap-2 font-semibold"><KeyRound size={16} className="text-cobalt" />Portal logins</h2><button type="button" className="btn-ghost btn-sm" onClick={() => setOpen(true)}><Plus size={13} />Add login</button></div>
       <ul className="divide-y divide-line/60">
         {client.portalUsers.map((u) => (
           <li key={u.id} className="flex items-center gap-3 py-2.5 text-sm">
             <Avatar user={{ ...u, color: client.color }} size={28} />
-            <div className="min-w-0 flex-1"><div className="truncate font-medium">{u.name}</div><div className="truncate text-xs text-mist">{u.email}{u.lastSeenAt ? `, seen ${ago(u.lastSeenAt)}` : ', never signed in'}</div></div>
+            <div className="min-w-0 flex-1"><div className="truncate font-medium">{u.name}</div><div className="truncate text-xs text-muted">{u.email}{u.lastSeenAt ? `, seen ${ago(u.lastSeenAt)}` : ', never signed in'}</div></div>
             <button type="button" onClick={() => toggle(u)} className={`btn-sm ${u.isActive ? 'btn-ghost' : 'btn-danger'}`}>{u.isActive ? 'Active' : 'Disabled'}</button>
           </li>
         ))}
-        {!client.portalUsers.length && <li className="py-3 text-sm text-mist">No logins yet. Add one so the client can see progress and approve work.</li>}
+        {!client.portalUsers.length && <li className="py-3 text-sm text-muted">No logins yet. Add one so the client can see progress and approve work.</li>}
       </ul>
       <Modal open={open} onClose={() => setOpen(false)} title={`Portal login for ${client.name}`} width="max-w-md"
         footer={<><button type="button" className="btn-ghost" onClick={() => setOpen(false)}>Cancel</button><button form="pl" className="btn-primary">Create login</button></>}>
@@ -113,39 +113,39 @@ export function ClientDetail() {
   return (
     <div className="space-y-5">
       <section className="panel flex flex-wrap items-center gap-5 p-6">
-        <span className="grid h-16 w-16 place-items-center rounded-2xl font-display text-2xl font-semibold text-space" style={{ background: c.color }}>{c.name[0]}</span>
+        <span className="grid h-16 w-16 place-items-center rounded-2xl font-display text-2xl font-semibold text-white" style={{ background: c.color }}>{c.name[0]}</span>
         <div className="min-w-0 flex-1">
           <h1 className="text-2xl font-semibold">{c.name}</h1>
-          <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1 text-sm text-mist">
+          <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted">
             {c.company && <span>{c.company}</span>}{c.industry && <span>{c.industry}</span>}
             {c.email && <span className="inline-flex items-center gap-1"><Mail size={13} />{c.email}</span>}
             {c.phone && <span className="inline-flex items-center gap-1"><Phone size={13} />{c.phone}</span>}
-            {c.whatsapp && <span className="inline-flex items-center gap-1 text-mint"><MessageCircle size={13} />{c.whatsapp}</span>}
+            {c.whatsapp && <span className="inline-flex items-center gap-1 text-leaf"><MessageCircle size={13} />{c.whatsapp}</span>}
           </div>
-          {c.notes && <p className="mt-2 max-w-2xl text-sm text-mist">{c.notes}</p>}
+          {c.notes && <p className="mt-2 max-w-2xl text-sm text-muted">{c.notes}</p>}
         </div>
         {can('clients.manage') && <button type="button" className="btn-ghost" onClick={() => setEdit(true)}><Pencil size={15} />Edit</button>}
       </section>
-      <div className="grid gap-5 xl:grid-cols-[1.4fr_1fr]">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <section className="panel p-5">
           <h2 className="mb-4 font-semibold">Projects</h2>
           <div className="space-y-3">
             {c.Projects.map((p) => (
-              <Link key={p.id} to={`/projects/${p.id}`} className="flex items-center gap-4 rounded-xl border border-line bg-white/[0.02] p-3 hover:border-signal/40">
+              <Link key={p.id} to={`/projects/${p.id}`} className="flex items-center gap-4 rounded-xl border border-line bg-sunken/50 p-3 hover:border-cobalt/40">
                 <OrbitRing value={p.progress} size={50} color={p.color} />
-                <div className="flex-1"><div className="font-medium">{p.name}</div><div className="text-xs text-mist">{PROJECT_STATUS[p.status]}, lead {p.owner?.name || '—'}</div></div>
+                <div className="flex-1"><div className="font-medium">{p.name}</div><div className="text-xs text-muted">{PROJECT_STATUS[p.status]}, lead {p.owner?.name || '—'}</div></div>
               </Link>
             ))}
-            {!c.Projects.length && <p className="text-sm text-mist">No projects for this client yet.</p>}
+            {!c.Projects.length && <p className="text-sm text-muted">No projects for this client yet.</p>}
           </div>
         </section>
         <div className="space-y-5">
           {can('clients.manage') && <PortalLogin client={c} onSaved={reload} />}
           <section className="panel p-5">
-            <h2 className="mb-3 flex items-center gap-2 font-semibold"><Inbox size={16} className="text-flare" />Requests</h2>
+            <h2 className="mb-3 flex items-center gap-2 font-semibold"><Inbox size={16} className="text-amber" />Requests</h2>
             <ul className="space-y-2 text-sm">
-              {c.requests.map((r) => <li key={r.id} className="flex items-center justify-between gap-3"><span className="truncate">{r.title}</span><span className="text-xs text-mist">{r.status}</span></li>)}
-              {!c.requests.length && <li className="text-mist">No requests yet.</li>}
+              {c.requests.map((r) => <li key={r.id} className="flex items-center justify-between gap-3"><span className="truncate">{r.title}</span><span className="text-xs text-muted">{r.status}</span></li>)}
+              {!c.requests.length && <li className="text-muted">No requests yet.</li>}
             </ul>
             <Link to="/requests" className="link mt-3 inline-block text-sm">Open the request inbox</Link>
           </section>
@@ -170,7 +170,7 @@ export function Requests() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h1 className="text-2xl font-semibold">Client requests</h1><p className="text-sm text-mist">Things clients asked for from their portal. Turn them into tasks or reply.</p></div>
+        <div><h1 className="text-2xl font-semibold">Client requests</h1><p className="text-sm text-muted">Things clients asked for from their portal. Turn them into tasks or reply.</p></div>
         <Segmented value={status} onChange={setStatus} options={[{ value: 'open', label: 'Open' }, { value: 'accepted', label: 'Accepted' }, { value: 'declined', label: 'Declined' }, { value: '', label: 'All' }]} />
       </div>
       {loading ? <PageLoader /> : !data.length ? <div className="panel"><Empty icon={Inbox} title="Inbox zero" body="New client requests appear here and notify the project lead." /></div> : (
@@ -180,9 +180,9 @@ export function Requests() {
               <span className="mt-1 h-2.5 w-2.5 rounded-full" style={{ background: r.Client?.color }} />
               <div className="min-w-0 flex-1">
                 <div className="font-semibold">{r.title}</div>
-                <div className="text-xs text-mist">{r.Client?.name}{r.Project ? `, ${r.Project.name}` : ''} — {r.requester?.name || 'Client'}, {ago(r.createdAt)} — <span style={{ color: PRIORITY[r.priority]?.color }}>{PRIORITY[r.priority]?.label}</span></div>
-                {r.description && <p className="mt-2 text-sm text-star/85">{r.description}</p>}
-                {r.response && <p className="mt-2 text-sm text-mist">Reply: {r.response}</p>}
+                <div className="text-xs text-muted">{r.Client?.name}{r.Project ? `, ${r.Project.name}` : ''} — {r.requester?.name || 'Client'}, {ago(r.createdAt)} — <span style={{ color: PRIORITY[r.priority]?.color }}>{PRIORITY[r.priority]?.label}</span></div>
+                {r.description && <p className="mt-2 text-sm text-ink/85">{r.description}</p>}
+                {r.response && <p className="mt-2 text-sm text-muted">Reply: {r.response}</p>}
                 {r.Task && <Link to={`/tasks/${r.Task.id}`} className="link mt-2 inline-block text-sm">Task {r.Task.key}</Link>}
               </div>
               {r.status === 'open' && (

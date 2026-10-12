@@ -24,3 +24,12 @@ api.interceptors.response.use((r) => r, (err) => {
 export const fileUrl = (id) => `${import.meta.env.VITE_API_URL || '/api'}/files/${id}?t=${encodeURIComponent(getToken() || '')}`;
 
 export default api;
+
+/** Fetch a protected file with the auth header and save it. */
+export async function download(url, filename) {
+  const r = await api.get(url, { responseType: 'blob' });
+  const href = URL.createObjectURL(r.data);
+  const a = document.createElement('a');
+  a.href = href; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 2000);
+}

@@ -55,10 +55,10 @@ function OrgNode({ person, byManager, onOpen }) {
   const kids = byManager[person.id] || [];
   return (
     <li className="relative">
-      <button type="button" onClick={() => onOpen(person)} className="flex items-center gap-3 rounded-xl border border-line bg-space-2/80 px-3 py-2 text-left transition hover:border-signal/40">
+      <button type="button" onClick={() => onOpen(person)} className="flex items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2 text-left transition hover:border-cobalt/40">
         <Avatar user={person} size={30} online={person.online} />
-        <span><span className="block text-sm font-semibold">{person.name}</span><span className="block text-[11px]" style={{ color: person.Role?.color }}>{person.Role?.name}<span className="text-mist">{person.designation ? `, ${person.designation}` : ''}</span></span></span>
-        <span className="ml-3 text-xs text-mist">{person.load.open} open</span>
+        <span><span className="block text-sm font-semibold">{person.name}</span><span className="block text-[11px]" style={{ color: person.Role?.color }}>{person.Role?.name}<span className="text-muted">{person.designation ? `, ${person.designation}` : ''}</span></span></span>
+        <span className="ml-3 text-xs text-muted">{person.load.open} open</span>
       </button>
       {kids.length > 0 && <ul className="ml-6 mt-2 space-y-2 border-l border-line pl-5">{kids.map((k) => <OrgNode key={k.id} person={k} byManager={byManager} onOpen={onOpen} />)}</ul>}
     </li>
@@ -84,7 +84,7 @@ export default function Team() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h1 className="text-2xl font-semibold">Team</h1><p className="text-sm text-mist">{active.length} people, {data.filter((u) => u.online).length} online now</p></div>
+        <div><h1 className="text-2xl font-semibold">Team</h1><p className="text-sm text-muted">{active.length} people, {data.filter((u) => u.online).length} online now</p></div>
         <div className="flex items-center gap-2">
           <Segmented value={view} onChange={setView} options={[{ value: 'grid', label: 'People', icon: LayoutGrid }, { value: 'org', label: 'Reporting lines', icon: Network }]} />
           {can('users.manage') && <button type="button" className="btn-primary" onClick={() => setForm({ open: true, person: null })}><Plus size={16} />Add person</button>}
@@ -95,16 +95,16 @@ export default function Team() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {data.map((u) => (
-            <button type="button" key={u.id} onClick={() => nav(`/team/${u.id}`)} className={`panel p-5 text-left transition hover:border-signal/40 ${!u.isActive ? 'opacity-50' : ''}`}>
+            <button type="button" key={u.id} onClick={() => nav(`/team/${u.id}`)} className={`panel p-5 text-left transition hover:border-cobalt/40 ${!u.isActive ? 'opacity-50' : ''}`}>
               <div className="flex items-center gap-3">
                 <Avatar user={u} size={44} online={u.online} />
-                <div className="min-w-0"><div className="truncate font-semibold">{u.name}</div><div className="truncate text-xs text-mist">{u.designation || '—'}</div></div>
+                <div className="min-w-0"><div className="truncate font-semibold">{u.name}</div><div className="truncate text-xs text-muted">{u.designation || '—'}</div></div>
               </div>
               <div className="mt-4 flex items-center justify-between text-xs">
                 <span className="chip" style={{ color: u.Role?.color, background: `${u.Role?.color}1A` }}>{u.Role?.name}</span>
-                <span className="text-mist">{u.load.open} open{u.load.overdue ? <span className="text-rose">, {u.load.overdue} late</span> : ''}</span>
+                <span className="text-muted">{u.load.open} open{u.load.overdue ? <span className="text-ember">, {u.load.overdue} late</span> : ''}</span>
               </div>
-              <div className="mt-2 truncate text-[11px] text-mist">{u.manager ? `Reports to ${u.manager.name}` : 'Top level'}{!u.isActive && ', deactivated'}</div>
+              <div className="mt-2 truncate text-[11px] text-muted">{u.manager ? `Reports to ${u.manager.name}` : 'Top level'}{!u.isActive && ', deactivated'}</div>
             </button>
           ))}
         </div>
@@ -124,16 +124,16 @@ function PersonPage({ id, form, setForm, roles, people, reload }) {
         <Avatar user={u} size={64} />
         <div className="min-w-0 flex-1">
           <h1 className="text-2xl font-semibold">{u.name}</h1>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-mist">
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
             <span style={{ color: u.Role?.color }}>{u.Role?.name}</span>{u.designation && <span>{u.designation}</span>}{u.department && <span>{u.department}</span>}
-            {u.manager && <span>Reports to {u.manager.name}</span>}{u.phone && <span className="inline-flex items-center gap-1 text-mint"><MessageCircle size={13} />{u.phone}</span>}
+            {u.manager && <span>Reports to {u.manager.name}</span>}{u.phone && <span className="inline-flex items-center gap-1 text-leaf"><MessageCircle size={13} />{u.phone}</span>}
             {u.lastSeenAt && <span>Active {ago(u.lastSeenAt)}</span>}
           </div>
-          {u.reports?.length > 0 && <div className="mt-2 text-xs text-mist">Leads {u.reports.map((r) => r.name).join(', ')}</div>}
+          {u.reports?.length > 0 && <div className="mt-2 text-xs text-muted">Leads {u.reports.map((r) => r.name).join(', ')}</div>}
         </div>
         <div className="flex gap-6 text-center">
-          <div><div className="font-display text-2xl font-semibold">{u.stats.done30d}</div><div className="text-xs text-mist">done in 30 days</div></div>
-          <div><div className="font-display text-2xl font-semibold">{minutes(u.stats.minutes30d)}</div><div className="text-xs text-mist">tracked in 30 days</div></div>
+          <div><div className="font-display text-2xl font-semibold">{u.stats.done30d}</div><div className="text-xs text-muted">done in 30 days</div></div>
+          <div><div className="font-display text-2xl font-semibold">{minutes(u.stats.minutes30d)}</div><div className="text-xs text-muted">tracked in 30 days</div></div>
         </div>
         {can('users.manage') && <button type="button" className="btn-ghost" onClick={() => setForm({ open: true, person: u })}><Pencil size={15} />Edit</button>}
       </section>

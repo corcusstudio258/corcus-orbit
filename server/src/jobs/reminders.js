@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const { Op } = require('sequelize');
 const { Task, User } = require('../models');
 const { notify } = require('../services/notify');
+const { emit } = require('../services/events');
 
 const fmt = (d) => new Date(d).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' });
 
@@ -35,7 +36,9 @@ async function overdue() {
     await notify({ userIds: people, type: 'task_overdue', title: `Overdue: ${t.key}`, body: `${t.title} was due ${fmt(t.dueDate)}`, link: `/tasks/${t.id}` });
     await notify({ userIds: managers.filter((m) => !people.includes(m)), type: 'task_overdue', title: `Team task overdue: ${t.key}`,
       body: `${t.title} was due ${fmt(t.dueDate)}`, link: `/tasks/${t.id}` });
+    const firstTime = !t.overdueNotifiedAt;
     t.overdueNotifiedAt = now; await t.save();
+    if (firstTime) emit('task.overdue', { task: t, actor: { name: 'Orbit' } });
   }
   return tasks.length;
 }
@@ -45,6 +48,8 @@ function start() {
   cron.schedule('*/15 * * * *', () => dueSoon().catch((e) => console.error('[reminders] due soon', e.message)), { timezone: tz });
   // Overdue nudges once a day at 10:05, during working hours
   cron.schedule('5 10 * * *', () => overdue().catch((e) => console.error('[reminders] overdue', e.message)), { timezone: tz });
+  // Meeting reminders, 15 minutes before
+  cron.schedule('*/5 * * * *', () => require('../routes/meetings').sendReminders().catch((e) => console.error('[reminders] meetings', e.message)), { timezone: tz });
 }
 
 module.exports = { start, dueSoon, overdue };

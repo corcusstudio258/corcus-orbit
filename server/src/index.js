@@ -21,7 +21,7 @@ const origins = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').
 app.set('trust proxy', 1);
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 app.use(cors({ origin: origins, credentials: true }));
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '5mb' }));
 if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
 
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
@@ -33,6 +33,12 @@ app.use('/api/projects', auth, require('./routes/projects'));
 app.use('/api/tasks', auth, require('./routes/tasks').router);
 app.use('/api/dashboard', auth, require('./routes/dashboard'));
 app.use('/api/portal', auth, require('./routes/portal'));
+app.use('/api/ai', auth, require('./routes/ai'));
+app.use('/api/chat', auth, require('./routes/chat').router);
+app.use('/api/meetings', auth, require('./routes/meetings').router);
+app.use('/api/documents', auth, require('./routes/documents'));
+app.use('/api/people', auth, require('./routes/people'));
+app.use('/api/tools', auth, require('./routes/tools'));
 app.use('/api/notifications', ...misc.notifications);
 app.use('/api/activity', ...misc.activity);
 app.use('/api/settings', ...misc.settings);
@@ -55,8 +61,10 @@ app.use((err, req, res, next) => {
 async function start() {
   await sequelize.authenticate();
   if (sequelize.getDialect() === 'sqlite') await sequelize.query('PRAGMA journal_mode = WAL;');
-  await sequelize.sync({ alter: process.env.DB_ALTER === '1' });
+  await require('./config/migrate').migrate();
   await ensureRoles();
+  await require('./config/defaults').ensureDefaults();
+  require('./services/hooks').register();
   socket.init(server, origins);
   reminders.start();
   const port = Number(process.env.PORT || 5000);

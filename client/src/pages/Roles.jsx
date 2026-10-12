@@ -37,21 +37,21 @@ export default function Roles() {
 
   return (
     <div className="space-y-5">
-      <div><h1 className="text-2xl font-semibold">Roles & access</h1><p className="text-sm text-mist">Build any hierarchy you need. Lower level number means more senior; people can only manage roles below their own level.</p></div>
-      <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
+      <div><h1 className="text-2xl font-semibold">Roles & access</h1><p className="text-sm text-muted">Build any hierarchy you need. Lower level number means more senior; people can only manage roles below their own level.</p></div>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
         <div className="space-y-2">
           {roles.map((r) => (
-            <button type="button" key={r.id} onClick={() => setSel(r.id)} className={clsx('flex w-full items-center gap-3 rounded-xl border p-3 text-left transition', sel === r.id ? 'border-signal/50 bg-signal/[0.06]' : 'border-line bg-space-2/50 hover:border-line hover:bg-white/[0.04]')}>
-              <span className="grid h-8 w-8 place-items-center rounded-lg font-display text-xs font-bold text-space" style={{ background: r.color }}>{r.level}</span>
-              <span className="min-w-0 flex-1"><span className="flex items-center gap-1.5 font-semibold">{r.name}{r.isSystem && <Lock size={12} className="text-mist" />}</span><span className="block truncate text-xs text-mist">{r.userCount} people</span></span>
+            <button type="button" key={r.id} onClick={() => setSel(r.id)} className={clsx('flex w-full items-center gap-3 rounded-xl border p-3 text-left transition', sel === r.id ? 'border-cobalt/50 bg-cobalt/[0.06]' : 'border-line bg-surface hover:border-line hover:bg-sunken')}>
+              <span className="grid h-8 w-8 place-items-center rounded-lg font-display text-xs font-bold text-white" style={{ background: r.color }}>{r.level}</span>
+              <span className="min-w-0 flex-1"><span className="flex items-center gap-1.5 font-semibold">{r.name}{r.isSystem && <Lock size={12} className="text-muted" />}</span><span className="block truncate text-xs text-muted">{r.userCount} people</span></span>
             </button>
           ))}
-          <button type="button" onClick={() => setSel('new')} className={clsx('flex w-full items-center gap-2 rounded-xl border border-dashed p-3 text-sm font-semibold', sel === 'new' ? 'border-signal text-signal' : 'border-line text-mist hover:text-star')}><Plus size={16} />New role</button>
+          <button type="button" onClick={() => setSel('new')} className={clsx('flex w-full items-center gap-2 rounded-xl border border-dashed p-3 text-sm font-semibold', sel === 'new' ? 'border-cobalt text-cobalt' : 'border-line text-muted hover:text-ink')}><Plus size={16} />New role</button>
         </div>
 
         <section className="panel p-5 sm:p-6">
-          {locked && <div className="mb-5 flex items-center gap-2 rounded-xl bg-white/[0.04] px-3 py-2 text-xs text-mist"><Lock size={13} />Built-in role. {f.isClientRole ? 'Clients only ever see the client portal.' : 'Admins always have every permission.'}</div>}
-          <div className="grid gap-4 sm:grid-cols-[1fr_120px]">
+          {locked && <div className="mb-5 flex items-center gap-2 rounded-xl bg-sunken/50 px-3 py-2 text-xs text-muted"><Lock size={13} />Built-in role. {f.isClientRole ? 'Clients only ever see the client portal.' : 'Admins always have every permission.'}</div>}
+          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_120px]">
             <Field label="Role name"><input className="input" disabled={locked} value={f.name} onChange={(e) => setF((s) => ({ ...s, name: e.target.value }))} placeholder="e.g. Senior Designer" /></Field>
             <Field label="Level" hint="1 = top"><input type="number" min={1} max={98} disabled={locked} className="input" value={f.level} onChange={(e) => setF((s) => ({ ...s, level: e.target.value }))} /></Field>
             <Field label="What this role does" className="sm:col-span-2"><input className="input" value={f.description || ''} onChange={(e) => setF((s) => ({ ...s, description: e.target.value }))} /></Field>
@@ -61,14 +61,14 @@ export default function Roles() {
             <div className="mt-6 space-y-5">
               {groups.map((g) => (
                 <div key={g}>
-                  <h3 className="mb-2 text-sm font-semibold text-mist">{g}</h3>
+                  <h3 className="mb-2 text-sm font-semibold text-muted">{g}</h3>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {perms.filter((p) => p.group === g).map((p) => {
                       const on = f.permissions.includes(p.key);
                       return (
                         <button type="button" key={p.key} onClick={() => toggle(p.key)} disabled={locked}
-                          className={clsx('flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition', on ? 'border-signal/40 bg-signal/[0.07]' : 'border-line bg-white/[0.02]', !locked && 'hover:border-signal/40')}>
-                          <span className={clsx('grid h-5 w-5 shrink-0 place-items-center rounded-md border', on ? 'border-signal bg-signal text-space' : 'border-mist/50')}>{on && <ShieldCheck size={12} />}</span>{p.label}
+                          className={clsx('flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition', on ? 'border-cobalt/40 bg-cobalt/[0.07]' : 'border-line bg-sunken/50', !locked && 'hover:border-cobalt/40')}>
+                          <span className={clsx('grid h-5 w-5 shrink-0 place-items-center rounded-md border', on ? 'border-cobalt bg-cobalt text-white' : 'border-line')}>{on && <ShieldCheck size={12} />}</span>{p.label}
                         </button>
                       );
                     })}

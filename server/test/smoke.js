@@ -94,9 +94,9 @@ const login = async (email) => (await call(null, 'POST', '/auth/login', { email,
 
   console.log('Dashboard & projects');
   const db = await call(admin, 'GET', '/dashboard');
-  ok(db.data.team && db.data.team.trend.length === 14 && db.data.team.workload.length > 0, 'team dashboard with trend + workload');
+  ok(db.data.scope === 'team' && db.data.velocity.length === 14 && db.data.pulse.length > 0, 'team dashboard with velocity + team pulse');
   const dbe = await call(rahul, 'GET', '/dashboard');
-  ok(dbe.data.team === null && dbe.data.personal.open > 0, 'executive gets personal dashboard only');
+  ok(dbe.data.scope === 'mine' && !dbe.data.pulse.length && dbe.data.personal.open > 0, 'executive gets personal dashboard only');
   const pr = await call(mgr, 'GET', '/projects/1');
   ok(pr.data.Milestones.length === 3 && typeof pr.data.progress === 'number', 'project detail with milestones');
 

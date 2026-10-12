@@ -1,0 +1,113 @@
+// Built-in project templates for a creative & growth agency. offsetDays = due date relative to project start.
+module.exports = [
+  {
+    name: 'Monthly social media calendar', category: 'Marketing', icon: '📅',
+    description: 'Plan, write, design, approve and publish a month of Instagram and Facebook content for one client.',
+    structure: {
+      sections: [{ name: 'Planning', color: '#3D5AFE' }, { name: 'Copy', color: '#8B5CF6' }, { name: 'Design', color: '#E5484D' }, { name: 'Approval', color: '#F2A900' }, { name: 'Publishing', color: '#1FA971' }],
+      milestones: [{ title: 'Calendar approved by client', offsetDays: 5 }, { title: 'All creatives approved', offsetDays: 12 }, { title: 'Month scheduled', offsetDays: 15 }],
+      tasks: [
+        { title: 'Research trends, festivals and competitor posts', section: 'Planning', priority: 'high', offsetDays: 2, durationDays: 2, estimateHours: 4, checklist: ['Festival & days list for the month', 'Competitor top 10 posts', 'Trending audio for reels'] },
+        { title: 'Content calendar sheet (posts, reels, stories)', section: 'Planning', priority: 'high', offsetDays: 4, durationDays: 2, estimateHours: 6, milestone: 'Calendar approved by client', subtasks: ['Post themes & content pillars', 'Reel ideas with hooks', 'Story series plan'] },
+        { title: 'Client approval on calendar', section: 'Approval', priority: 'high', offsetDays: 5, estimateHours: 1 },
+        { title: 'Write captions & hashtags', section: 'Copy', priority: 'medium', offsetDays: 8, durationDays: 3, estimateHours: 6, checklist: ['Hinglish / English versions', 'CTA in every caption', 'Hashtag sets'] },
+        { title: 'Reel scripts', section: 'Copy', priority: 'medium', offsetDays: 8, durationDays: 3, estimateHours: 4 },
+        { title: 'Design static posts & carousels', section: 'Design', priority: 'high', offsetDays: 11, durationDays: 5, estimateHours: 16 },
+        { title: 'Shoot & edit reels', section: 'Design', priority: 'high', offsetDays: 12, durationDays: 6, estimateHours: 14 },
+        { title: 'Client approval on creatives', section: 'Approval', priority: 'high', offsetDays: 12, milestone: 'All creatives approved' },
+        { title: 'Schedule posts in Meta Business Suite', section: 'Publishing', priority: 'medium', offsetDays: 15, estimateHours: 2, milestone: 'Month scheduled' },
+        { title: 'Monthly performance report', section: 'Publishing', priority: 'medium', offsetDays: 30, estimateHours: 3 },
+      ],
+    },
+  },
+  {
+    name: 'Meta Ads campaign launch', category: 'Marketing', icon: '🎯',
+    description: 'From brief to live Meta campaign with tracking, audiences, creatives and a 7-day optimisation pass.',
+    structure: {
+      sections: [{ name: 'Setup', color: '#3D5AFE' }, { name: 'Creatives', color: '#E5484D' }, { name: 'Launch', color: '#1FA971' }, { name: 'Optimise', color: '#F2A900' }],
+      milestones: [{ title: 'Tracking verified', offsetDays: 2 }, { title: 'Campaign live', offsetDays: 6 }, { title: 'First optimisation', offsetDays: 13 }],
+      tasks: [
+        { title: 'Campaign brief: goal, budget, offer, audience', section: 'Setup', priority: 'high', offsetDays: 1, estimateHours: 2 },
+        { title: 'Pixel + Conversions API check', section: 'Setup', priority: 'urgent', offsetDays: 2, estimateHours: 2, milestone: 'Tracking verified', checklist: ['Events firing in Events Manager', 'Domain verified', 'Aggregated events ranked'] },
+        { title: 'Build audiences (interest, lookalike, retargeting)', section: 'Setup', priority: 'high', offsetDays: 3, estimateHours: 3 },
+        { title: 'Ad copy variants (6)', section: 'Creatives', priority: 'high', offsetDays: 3, estimateHours: 3 },
+        { title: 'Static & video creatives (3 + 2)', section: 'Creatives', priority: 'high', offsetDays: 5, durationDays: 3, estimateHours: 10 },
+        { title: 'Lead form / WhatsApp flow', section: 'Setup', priority: 'medium', offsetDays: 4, estimateHours: 2 },
+        { title: 'Client approval on ads', section: 'Launch', priority: 'high', offsetDays: 5 },
+        { title: 'Publish campaign with UTM tags', section: 'Launch', priority: 'urgent', offsetDays: 6, estimateHours: 2, milestone: 'Campaign live' },
+        { title: 'Day-3 health check (CPM, CTR, CPL)', section: 'Optimise', priority: 'medium', offsetDays: 9, estimateHours: 1 },
+        { title: 'Day-7 optimisation & budget shift', section: 'Optimise', priority: 'high', offsetDays: 13, estimateHours: 2, milestone: 'First optimisation' },
+        { title: 'Weekly report to client', section: 'Optimise', priority: 'medium', offsetDays: 14, estimateHours: 2 },
+      ],
+    },
+  },
+  {
+    name: 'Website build', category: 'Development', icon: '🖥️',
+    description: 'Discovery to launch for a business website with admin panel, SEO basics and handover.',
+    structure: {
+      sections: [{ name: 'Discovery', color: '#3D5AFE' }, { name: 'Design', color: '#8B5CF6' }, { name: 'Build', color: '#E5484D' }, { name: 'Launch', color: '#1FA971' }],
+      milestones: [{ title: 'Sitemap & content signed off', offsetDays: 7 }, { title: 'Design approved', offsetDays: 18 }, { title: 'Go live', offsetDays: 40 }],
+      tasks: [
+        { title: 'Kick-off call & requirement sheet', section: 'Discovery', priority: 'high', offsetDays: 2, estimateHours: 2 },
+        { title: 'Sitemap & page content plan', section: 'Discovery', priority: 'high', offsetDays: 7, durationDays: 4, estimateHours: 6, milestone: 'Sitemap & content signed off' },
+        { title: 'Homepage design', section: 'Design', priority: 'high', offsetDays: 12, durationDays: 4, estimateHours: 12 },
+        { title: 'Inner page designs', section: 'Design', priority: 'medium', offsetDays: 17, durationDays: 5, estimateHours: 14 },
+        { title: 'Client design approval', section: 'Design', priority: 'high', offsetDays: 18, milestone: 'Design approved' },
+        { title: 'Front-end build', section: 'Build', priority: 'high', offsetDays: 28, durationDays: 9, estimateHours: 40, subtasks: ['Responsive layout', 'Forms & WhatsApp button', 'Speed optimisation'] },
+        { title: 'Admin panel & database', section: 'Build', priority: 'high', offsetDays: 32, durationDays: 10, estimateHours: 30 },
+        { title: 'SEO basics: titles, meta, sitemap.xml', section: 'Build', priority: 'medium', offsetDays: 34, estimateHours: 4 },
+        { title: 'QA on mobile & desktop', section: 'Launch', priority: 'high', offsetDays: 37, estimateHours: 6 },
+        { title: 'Domain, SSL & deployment', section: 'Launch', priority: 'urgent', offsetDays: 40, estimateHours: 3, milestone: 'Go live' },
+        { title: 'Handover & admin training', section: 'Launch', priority: 'medium', offsetDays: 42, estimateHours: 2 },
+      ],
+    },
+  },
+  {
+    name: 'Client onboarding', category: 'General', icon: '🤝',
+    description: 'Everything from signed proposal to a smooth kick-off, with access and assets collected.',
+    structure: {
+      sections: [{ name: 'Paperwork', color: '#5E6787' }, { name: 'Access', color: '#3D5AFE' }, { name: 'Kick-off', color: '#1FA971' }],
+      milestones: [{ title: 'Kick-off done', offsetDays: 5 }],
+      tasks: [
+        { title: 'Agreement & first invoice', section: 'Paperwork', priority: 'high', offsetDays: 1 },
+        { title: 'Create WhatsApp group & portal login', section: 'Paperwork', priority: 'medium', offsetDays: 1 },
+        { title: 'Collect brand assets (logo, fonts, photos)', section: 'Access', priority: 'high', offsetDays: 3, checklist: ['Logo files', 'Brand colours', 'Product photos'] },
+        { title: 'Get Meta Business, Instagram & website access', section: 'Access', priority: 'high', offsetDays: 3 },
+        { title: 'Kick-off meeting', section: 'Kick-off', priority: 'high', offsetDays: 5, milestone: 'Kick-off done' },
+        { title: 'Share 30-day plan', section: 'Kick-off', priority: 'medium', offsetDays: 7 },
+      ],
+    },
+  },
+  {
+    name: 'Brand identity', category: 'Design', icon: '🎨',
+    description: 'Discovery, concepts, refinement and a brand guideline handover.',
+    structure: {
+      sections: [{ name: 'Discovery', color: '#3D5AFE' }, { name: 'Concepts', color: '#8B5CF6' }, { name: 'Delivery', color: '#1FA971' }],
+      milestones: [{ title: 'Concept chosen', offsetDays: 12 }, { title: 'Brand book delivered', offsetDays: 25 }],
+      tasks: [
+        { title: 'Brand questionnaire & moodboard', section: 'Discovery', priority: 'high', offsetDays: 4 },
+        { title: 'Three logo concepts', section: 'Concepts', priority: 'high', offsetDays: 10, durationDays: 5, estimateHours: 18 },
+        { title: 'Concept presentation', section: 'Concepts', priority: 'high', offsetDays: 12, milestone: 'Concept chosen' },
+        { title: 'Refine chosen concept', section: 'Concepts', priority: 'medium', offsetDays: 17, estimateHours: 8 },
+        { title: 'Colour, type & usage rules', section: 'Delivery', priority: 'medium', offsetDays: 21, estimateHours: 6 },
+        { title: 'Stationery & social templates', section: 'Delivery', priority: 'medium', offsetDays: 24, estimateHours: 8 },
+        { title: 'Brand book PDF & source files', section: 'Delivery', priority: 'high', offsetDays: 25, milestone: 'Brand book delivered' },
+      ],
+    },
+  },
+  {
+    name: 'Reel production', category: 'Marketing', icon: '🎬',
+    description: 'A repeatable pipeline for one short-form video: script to published reel.',
+    structure: {
+      sections: [{ name: 'Pre-production', color: '#3D5AFE' }, { name: 'Shoot', color: '#E5484D' }, { name: 'Post', color: '#8B5CF6' }],
+      milestones: [{ title: 'Reel published', offsetDays: 6 }],
+      tasks: [
+        { title: 'Hook & script', section: 'Pre-production', priority: 'high', offsetDays: 1 },
+        { title: 'Shot list & props', section: 'Pre-production', priority: 'medium', offsetDays: 2 },
+        { title: 'Shoot', section: 'Shoot', priority: 'high', offsetDays: 3 },
+        { title: 'Edit, captions & music', section: 'Post', priority: 'high', offsetDays: 5 },
+        { title: 'Client approval & publish', section: 'Post', priority: 'high', offsetDays: 6, milestone: 'Reel published' },
+      ],
+    },
+  },
+];

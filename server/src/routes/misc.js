@@ -47,10 +47,28 @@ settingsRouter.get('/', async (req, res) => {
   if (!req.can('settings.manage')) return res.json({ company });
   const wa = JSON.parse(JSON.stringify(await settings.get('whatsapp')));
   wa.meta.token = mask(wa.meta.token);
-  res.json({ company, whatsapp: wa });
+  const aiCfg = JSON.parse(JSON.stringify(await settings.get('ai')));
+  const envKey = !aiCfg.apiKey && !!process.env.GEMINI_API_KEY;
+  aiCfg.apiKey = mask(aiCfg.apiKey);
+  res.json({ company, whatsapp: wa, ai: { ...aiCfg, envKey } });
+});
+settingsRouter.patch('/ai', requirePerm('settings.manage'), async (req, res) => {
+  const body = { ...req.body };
+  if (body.apiKey === undefined || String(body.apiKey).startsWith('••')) delete body.apiKey;
+  if (body.apiKey) body.apiKey = String(body.apiKey).trim();
+  const saved = JSON.parse(JSON.stringify(await settings.set('ai', body)));
+  saved.apiKey = mask(saved.apiKey);
+  res.json(saved);
+});
+settingsRouter.post('/ai/test', requirePerm('settings.manage'), async (req, res) => {
+  const ai = require('../services/ai');
+  try {
+    const text = await ai.generate({ prompt: 'Reply with exactly: Orbit AI is connected.', temperature: 0, maxTokens: 30 });
+    res.json({ ok: true, reply: text, ...(await ai.status()) });
+  } catch (e) { res.status(e.status || 500).json({ ok: false, error: e.message }); }
 });
 settingsRouter.patch('/company', requirePerm('settings.manage'), async (req, res) => {
-  const allowed = ['name', 'tagline', 'accent', 'workStart', 'timezone'];
+  const allowed = ['name', 'tagline', 'accent', 'workStart', 'timezone', 'graceMinutes', 'dailyCapacity', 'currency'];
   const v = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
   res.json(await settings.set('company', v));
 });

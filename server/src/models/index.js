@@ -63,6 +63,11 @@ const Project = sequelize.define('Project', {
   color: { type: DataTypes.STRING, defaultValue: '#3DE0F2' },
   clientVisible: { type: DataTypes.BOOLEAN, defaultValue: true },
   taskCounter: { type: DataTypes.INTEGER, defaultValue: 0 },
+  icon: DataTypes.STRING, // emoji
+  budget: { type: DataTypes.FLOAT, defaultValue: 0 },
+  spent: { type: DataTypes.FLOAT, defaultValue: 0 },
+  currency: { type: DataTypes.STRING, defaultValue: 'INR' },
+  healthOverride: DataTypes.STRING, // on_track | at_risk | off_track | null (auto)
 });
 
 const ProjectMember = sequelize.define('ProjectMember', {
@@ -91,6 +96,11 @@ const Task = sequelize.define('Task', {
   requiresApproval: { type: DataTypes.BOOLEAN, defaultValue: false },
   approvalStatus: { type: DataTypes.STRING, defaultValue: 'none' }, // none | pending | approved | changes_requested
   tags: json('tags', []),
+  links: json('links', []),
+  storyPoints: DataTypes.INTEGER,
+  recurrence: json('recurrence', null), // { freq: 'daily'|'weekly'|'monthly', interval, days:[0-6], until }
+  archived: { type: DataTypes.BOOLEAN, defaultValue: false },
+  startedAt: DataTypes.DATE,
   completedAt: DataTypes.DATE,
   reminderSentAt: DataTypes.DATE,
   overdueNotifiedAt: DataTypes.DATE,
@@ -156,6 +166,120 @@ const ClientRequest = sequelize.define('ClientRequest', {
   response: DataTypes.TEXT,
 });
 
+// ---------- v2: planning ----------
+const Section = sequelize.define('Section', {
+  name: { type: DataTypes.STRING, allowNull: false },
+  color: { type: DataTypes.STRING, defaultValue: '#5E6787' },
+  order: { type: DataTypes.INTEGER, defaultValue: 0 },
+});
+
+const Sprint = sequelize.define('Sprint', {
+  name: { type: DataTypes.STRING, allowNull: false },
+  goal: DataTypes.TEXT,
+  startDate: DataTypes.DATEONLY,
+  endDate: DataTypes.DATEONLY,
+  status: { type: DataTypes.STRING, defaultValue: 'planned' }, // planned | active | completed
+  completedAt: DataTypes.DATE,
+  snapshot: json('snapshot', null), // stats captured on completion
+});
+
+const TaskDependency = sequelize.define('TaskDependency', {}); // taskId is blocked by blockerId
+const TaskWatcher = sequelize.define('TaskWatcher', {});
+
+// ---------- v2: collaboration ----------
+const Channel = sequelize.define('Channel', {
+  name: DataTypes.STRING,
+  description: DataTypes.STRING,
+  kind: { type: DataTypes.STRING, defaultValue: 'channel' }, // channel | dm
+  isPrivate: { type: DataTypes.BOOLEAN, defaultValue: false },
+  dmKey: { type: DataTypes.STRING, unique: true }, // "3:7" for DMs
+  lastMessageAt: DataTypes.DATE,
+});
+const ChannelMember = sequelize.define('ChannelMember', {
+  lastReadAt: DataTypes.DATE,
+});
+const Message = sequelize.define('Message', {
+  body: { type: DataTypes.TEXT, allowNull: false },
+  mentions: json('mentions', []),
+  editedAt: DataTypes.DATE,
+});
+
+const Meeting = sequelize.define('Meeting', {
+  title: { type: DataTypes.STRING, allowNull: false },
+  agenda: DataTypes.TEXT,
+  startAt: { type: DataTypes.DATE, allowNull: false },
+  endAt: { type: DataTypes.DATE, allowNull: false },
+  link: DataTypes.STRING, // Google Meet / Zoom URL
+  location: DataTypes.STRING,
+  notes: DataTypes.TEXT,
+  aiSummary: json('aiSummary', null),
+  reminderSentAt: DataTypes.DATE,
+  inviteClient: { type: DataTypes.BOOLEAN, defaultValue: false },
+});
+const MeetingAttendee = sequelize.define('MeetingAttendee', {
+  response: { type: DataTypes.STRING, defaultValue: 'pending' }, // pending | yes | no | maybe
+});
+
+const Document = sequelize.define('Document', {
+  title: { type: DataTypes.STRING, allowNull: false },
+  content: DataTypes.TEXT, // markdown
+  icon: DataTypes.STRING,
+  visibility: { type: DataTypes.STRING, defaultValue: 'workspace' }, // private | workspace
+  clientVisible: { type: DataTypes.BOOLEAN, defaultValue: false },
+  pinned: { type: DataTypes.BOOLEAN, defaultValue: false },
+});
+
+// ---------- v2: people ----------
+const Attendance = sequelize.define('Attendance', {
+  date: { type: DataTypes.DATEONLY, allowNull: false },
+  inAt: DataTypes.DATE,
+  outAt: DataTypes.DATE,
+  sessionAt: DataTypes.DATE, // start of the current punch-in session (several per day allowed)
+  minutes: { type: DataTypes.INTEGER, defaultValue: 0 },
+  status: { type: DataTypes.STRING, defaultValue: 'present' }, // present | late | half_day | absent | remote | leave
+  mode: { type: DataTypes.STRING, defaultValue: 'office' }, // office | remote
+  note: DataTypes.STRING,
+});
+
+const PointEntry = sequelize.define('PointEntry', {
+  points: { type: DataTypes.INTEGER, allowNull: false },
+  reason: DataTypes.STRING,
+  kind: DataTypes.STRING, // task_done | on_time | early | attendance | streak | bonus | badge
+  refId: DataTypes.INTEGER,
+});
+const UserBadge = sequelize.define('UserBadge', {
+  code: { type: DataTypes.STRING, allowNull: false },
+});
+
+// ---------- v2: tools ----------
+const Automation = sequelize.define('Automation', {
+  name: { type: DataTypes.STRING, allowNull: false },
+  description: DataTypes.TEXT,
+  trigger: { type: DataTypes.STRING, allowNull: false }, // task.created | task.status | task.priority | task.assigned | task.overdue | task.comment
+  conditions: json('conditions', {}), // { status, fromStatus, priority, projectId }
+  actions: json('actions', []), // [{ type: notify|whatsapp|set_status|set_priority|assign|comment|points|move_section, ... }]
+  active: { type: DataTypes.BOOLEAN, defaultValue: true },
+  runs: { type: DataTypes.INTEGER, defaultValue: 0 },
+  lastRunAt: DataTypes.DATE,
+});
+
+const Template = sequelize.define('Template', {
+  name: { type: DataTypes.STRING, allowNull: false },
+  description: DataTypes.TEXT,
+  category: { type: DataTypes.STRING, defaultValue: 'General' },
+  icon: { type: DataTypes.STRING, defaultValue: '📦' },
+  structure: json('structure', { sections: [], milestones: [], tasks: [] }),
+  uses: { type: DataTypes.INTEGER, defaultValue: 0 },
+  isSystem: { type: DataTypes.BOOLEAN, defaultValue: false },
+});
+
+const AiInsight = sequelize.define('AiInsight', {
+  kind: { type: DataTypes.STRING, allowNull: false }, // brief | standup | report | health
+  scope: DataTypes.STRING,
+  content: json('content', null),
+  source: { type: DataTypes.STRING, defaultValue: 'gemini' }, // gemini | rules
+});
+
 const Setting = sequelize.define('Setting', {
   key: { type: DataTypes.STRING, unique: true },
   value: json('value', null),
@@ -212,7 +336,53 @@ ClientRequest.belongsTo(Project, { foreignKey: 'projectId' });
 ClientRequest.belongsTo(User, { as: 'requester', foreignKey: 'userId' });
 ClientRequest.belongsTo(Task, { foreignKey: 'taskId' });
 
+// ---------- v2 associations ----------
+Project.hasMany(Section, { foreignKey: 'projectId', onDelete: 'CASCADE' });
+Section.belongsTo(Project, { foreignKey: 'projectId' });
+Task.belongsTo(Section, { foreignKey: 'sectionId' });
+
+Project.hasMany(Sprint, { foreignKey: 'projectId', onDelete: 'CASCADE' });
+Sprint.belongsTo(Project, { foreignKey: 'projectId' });
+Task.belongsTo(Sprint, { foreignKey: 'sprintId' });
+Sprint.hasMany(Task, { foreignKey: 'sprintId' });
+
+Task.belongsToMany(Task, { through: TaskDependency, as: 'blockers', foreignKey: 'taskId', otherKey: 'blockerId' });
+Task.belongsToMany(Task, { through: TaskDependency, as: 'blocking', foreignKey: 'blockerId', otherKey: 'taskId' });
+Task.belongsToMany(User, { through: TaskWatcher, as: 'watchers', foreignKey: 'taskId', otherKey: 'userId' });
+
+Channel.belongsToMany(User, { through: ChannelMember, as: 'members', foreignKey: 'channelId', otherKey: 'userId' });
+User.belongsToMany(Channel, { through: ChannelMember, as: 'channels', foreignKey: 'userId', otherKey: 'channelId' });
+Channel.hasMany(ChannelMember, { foreignKey: 'channelId' });
+ChannelMember.belongsTo(User, { foreignKey: 'userId' });
+Channel.belongsTo(Project, { foreignKey: 'projectId' });
+Channel.belongsTo(User, { as: 'creator', foreignKey: 'createdById' });
+Channel.hasMany(Message, { foreignKey: 'channelId', onDelete: 'CASCADE' });
+Message.belongsTo(Channel, { foreignKey: 'channelId' });
+Message.belongsTo(User, { as: 'author', foreignKey: 'userId' });
+Message.belongsTo(Task, { foreignKey: 'taskId' });
+
+Meeting.belongsTo(User, { as: 'organizer', foreignKey: 'organizerId' });
+Meeting.belongsTo(Project, { foreignKey: 'projectId' });
+Meeting.belongsTo(Client, { foreignKey: 'clientId' });
+Meeting.belongsToMany(User, { through: MeetingAttendee, as: 'attendees', foreignKey: 'meetingId', otherKey: 'userId' });
+
+Document.belongsTo(User, { as: 'author', foreignKey: 'createdById' });
+Document.belongsTo(User, { as: 'editor', foreignKey: 'updatedById' });
+Document.belongsTo(Project, { foreignKey: 'projectId' });
+Project.hasMany(Document, { foreignKey: 'projectId' });
+
+Attendance.belongsTo(User, { foreignKey: 'userId' });
+User.hasMany(Attendance, { foreignKey: 'userId' });
+PointEntry.belongsTo(User, { foreignKey: 'userId' });
+UserBadge.belongsTo(User, { foreignKey: 'userId' });
+
+Automation.belongsTo(User, { as: 'creator', foreignKey: 'createdById' });
+Template.belongsTo(User, { as: 'creator', foreignKey: 'createdById' });
+AiInsight.belongsTo(User, { foreignKey: 'userId' });
+
 module.exports = {
+  Section, Sprint, TaskDependency, TaskWatcher, Channel, ChannelMember, Message, Meeting, MeetingAttendee, Document,
+  Attendance, PointEntry, UserBadge, Automation, Template, AiInsight,
   sequelize, Role, Client, User, Project, ProjectMember, Milestone, Task, TaskAssignee,
   ChecklistItem, Comment, Attachment, TimeLog, Activity, Notification, WhatsAppLog, ClientRequest, Setting,
 };

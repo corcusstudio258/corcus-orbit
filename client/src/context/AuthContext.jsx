@@ -4,10 +4,12 @@ import toast from 'react-hot-toast';
 import api, { getToken, setToken } from '../lib/api';
 
 const AuthCtx = createContext(null);
+const EVENTS = ['task:changed', 'project:changed', 'activity', 'request:changed', 'chat:message', 'chat:channel', 'chat:typing', 'meeting:changed', 'attendance:changed', 'doc:changed'];
 
 export function AuthProvider({ children }) {
   const [state, setState] = useState({ loading: true, user: null, permissions: [], isClient: false, company: null });
   const [unread, setUnread] = useState(0);
+  const [chatUnread, setChatUnread] = useState(0);
   const [online, setOnline] = useState([]);
   const socketRef = useRef(null);
   const listeners = useRef(new Map());
@@ -21,7 +23,8 @@ export function AuthProvider({ children }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  // Realtime connection
+  const loadChatUnread = useCallback(() => api.get('/chat/unread').then((r) => setChatUnread(r.data.unread)).catch(() => {}), []);
+
   useEffect(() => {
     if (!state.user) return undefined;
     const s = io(import.meta.env.VITE_SOCKET_URL || '/', { auth: { token: getToken() }, transports: ['websocket', 'polling'] });
@@ -29,12 +32,15 @@ export function AuthProvider({ children }) {
     const emit = (event, data) => (listeners.current.get(event) || new Set()).forEach((fn) => fn(data));
     s.on('notification', (n) => {
       setUnread((u) => u + 1);
-      toast(n.title, { icon: '🛰️' });
+      const onChat = location.pathname.startsWith('/chat');
+      if (!(onChat && ['chat_dm', 'chat_mention'].includes(n.type))) toast(n.title, { icon: n.type?.startsWith('chat') ? '💬' : n.type === 'kudos' ? '🎉' : '🔔' });
       emit('notification', n);
     });
     s.on('presence', setOnline);
-    ['task:changed', 'project:changed', 'activity', 'request:changed'].forEach((ev) => s.on(ev, (d) => emit(ev, d)));
+    EVENTS.forEach((ev) => s.on(ev, (d) => emit(ev, d)));
+    s.on('chat:message', (d) => { if (d?.message && d.message.userId !== state.user.id && !location.pathname.startsWith(`/chat/${d.channelId}`)) setChatUnread((n) => n + 1); });
     api.get('/notifications?limit=1').then((r) => setUnread(r.data.unread)).catch(() => {});
+    if (!state.isClient) loadChatUnread();
     return () => { s.disconnect(); socketRef.current = null; };
   }, [state.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -43,6 +49,8 @@ export function AuthProvider({ children }) {
     listeners.current.get(event).add(fn);
     return () => listeners.current.get(event)?.delete(fn);
   }, []);
+
+  const socketEmit = useCallback((event, data) => socketRef.current?.emit(event, data), []);
 
   const login = async (email, password) => {
     const { data } = await api.post('/auth/login', { email, password });
@@ -57,9 +65,9 @@ export function AuthProvider({ children }) {
   const logout = () => { setToken(null); setState({ loading: false, user: null, permissions: [], isClient: false, company: null }); };
 
   const value = useMemo(() => ({
-    ...state, unread, setUnread, online, login, logout, setup, refresh, subscribe,
+    ...state, unread, setUnread, chatUnread, setChatUnread, loadChatUnread, online, login, logout, setup, refresh, subscribe, socketEmit,
     can: (...perms) => perms.some((p) => state.permissions.includes(p)),
-  }), [state, unread, online, refresh, subscribe]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [state, unread, chatUnread, online, refresh, subscribe, socketEmit, loadChatUnread]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }
@@ -75,4 +83,10 @@ export function useLive(events, fn, deps = []) {
     const offs = [].concat(events).map((e) => subscribe(e, run));
     return () => { clearTimeout(t); offs.forEach((off) => off()); };
   }, deps); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+/** Like useLive but not debounced (for chat). */
+export function useSocketEvent(event, fn, deps = []) {
+  const { subscribe } = useAuth();
+  useEffect(() => subscribe(event, fn), deps); // eslint-disable-line react-hooks/exhaustive-deps
 }

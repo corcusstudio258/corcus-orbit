@@ -8,6 +8,13 @@ const DEFAULTS = {
     workStart: '10:00',
     timezone: 'Asia/Kolkata',
   },
+  ai: {
+    enabled: true,
+    provider: 'gemini',
+    apiKey: process.env.GEMINI_API_KEY || '',
+    model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+    features: { brief: true, assistant: true, reports: true },
+  },
   whatsapp: {
     enabled: false,
     provider: process.env.WA_PROVIDER || 'log', // log | meta | custom
@@ -28,7 +35,7 @@ const DEFAULTS = {
     },
     events: {
       assigned: true, status: true, comment: true, due: true, overdue: true,
-      approval: true, client_update: true, client_request: true,
+      approval: true, client_update: true, client_request: true, meeting: true, chat: false,
     },
   },
 };
