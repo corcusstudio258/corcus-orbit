@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
-import { Plus, FolderKanban, Search, Sparkles, LayoutTemplate, FilePlus2, ArrowLeft } from 'lucide-react';
+import { Plus, FolderKanban, Search, Sparkles, LayoutTemplate, FilePlus2, ArrowLeft, Pencil, Trash2 } from 'lucide-react';
 import api from '../lib/api';
 import useFetch from '../lib/useFetch';
 import { useAuth, useLive } from '../context/AuthContext';
@@ -130,10 +130,12 @@ export function ProjectForm({ open, onClose, project, onSaved, initialTemplateId
         <Field label="Start"><input type="date" className="input" value={f.startDate || ''} onChange={set('startDate')} /></Field>
         <Field label="Deadline"><input type="date" className="input" value={f.dueDate || ''} onChange={set('dueDate')} /></Field>
         <Field label="Status"><select className="input" value={f.status} onChange={set('status')}>{Object.entries(PROJECT_STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="Budget (₹)"><input type="number" min="0" className="input" value={f.budget} onChange={set('budget')} /></Field>
-          <Field label="Spent (₹)"><input type="number" min="0" className="input" value={f.spent} onChange={set('spent')} /></Field>
-        </div>
+        {project && can('projects.budget') && (
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Budget (₹)"><input type="number" min="0" className="input" value={f.budget} onChange={set('budget')} /></Field>
+            <Field label="Spent (₹)"><input type="number" min="0" className="input" value={f.spent} onChange={set('spent')} /></Field>
+          </div>
+        )}
         <Field label="Description" className="sm:col-span-2"><textarea className="input min-h-[64px]" value={f.description || ''} onChange={set('description')} /></Field>
         <Field label="Colour" className="sm:col-span-2"><ColorPicker value={f.color} onChange={set('color')} /></Field>
         {project && (
@@ -171,6 +173,60 @@ export function ProjectForm({ open, onClose, project, onSaved, initialTemplateId
     <Modal open={open} onClose={onClose} title={project ? 'Edit project' : step === 'choose' ? 'New project' : step === 'template' ? 'Pick a template' : mode === 'ai' ? 'Plan a project with AI' : 'Project details'} width="max-w-2xl" footer={footer}>
       {step === 'choose' ? choose : step === 'template' ? templatePick : details}
     </Modal>
+  );
+}
+
+function QuickEdit({ p, onChanged }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(p.name);
+  const [del, setDel] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const h = (e) => ref.current && !ref.current.contains(e.target) && setOpen(false);
+    document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+  const stop = (e) => { e.preventDefault(); e.stopPropagation(); };
+  const patch = async (body, msg) => {
+    setBusy(true);
+    try { await api.patch(`/projects/${p.id}`, body); toast.success(msg); refreshProjects(); onChanged(); } catch (err) { toast.error(err.message); } finally { setBusy(false); }
+  };
+  const remove = async () => {
+    setBusy(true);
+    try { const { data } = await api.delete(`/projects/${p.id}`, { data: { confirm: typed } }); toast.success(`Deleted ${p.name} and ${data.tasks} tasks`); setDel(false); setOpen(false); refreshProjects(); onChanged(); } catch (err) { toast.error(err.message); } finally { setBusy(false); }
+  };
+  return (
+    <div ref={ref} className="relative" onClick={stop} onKeyDown={(e) => e.stopPropagation()} role="presentation">
+      <button type="button" onClick={(e) => { stop(e); setOpen((o) => !o); setName(p.name); }} className="rounded-lg p-1.5 text-muted opacity-60 transition hover:bg-sunken hover:text-ink group-hover:opacity-100" aria-label={`Quick edit ${p.name}`}><Pencil size={15} /></button>
+      {open && (
+        <div className="absolute right-0 top-9 z-30 w-72 cursor-default rounded-2xl border border-line bg-surface p-3 text-left shadow-pop">
+          <p className="mb-2 text-xs font-semibold text-muted">Quick edit</p>
+          <form onSubmit={(e) => { stop(e); if (name.trim() && name !== p.name) patch({ name: name.trim() }, 'Renamed'); }} className="flex gap-1.5">
+            <input className="input !py-1.5 text-sm" value={name} onChange={(e) => setName(e.target.value)} aria-label="Project name" />
+            <button className="btn-ink btn-sm" disabled={busy || !name.trim() || name === p.name}>Save</button>
+          </form>
+          <p className="mb-1.5 mt-3 text-xs font-semibold text-muted">Status</p>
+          <div className="grid grid-cols-2 gap-1">
+            {Object.entries(PROJECT_STATUS).map(([k, v]) => (
+              <button key={k} type="button" disabled={busy} onClick={(e) => { stop(e); if (k !== p.status) patch({ status: k }, `Marked ${v.toLowerCase()}`); }} className={clsx('rounded-lg px-2 py-1.5 text-xs font-semibold transition', p.status === k ? 'bg-ink text-surface' : 'bg-sunken text-muted hover:text-ink')}>{v}</button>
+            ))}
+          </div>
+          <div className="mt-3 border-t border-line pt-3">
+            {!del ? (
+              <button type="button" onClick={(e) => { stop(e); setDel(true); }} className="inline-flex items-center gap-1.5 text-xs font-semibold text-ember hover:underline"><Trash2 size={13} />Delete project</button>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-ember">This deletes the project, all its tasks, files and comments. It can't be undone. Type <b>{p.name}</b> to confirm.</p>
+                <input className="input !py-1.5 text-sm" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={p.name} autoFocus />
+                <div className="flex gap-1.5"><button type="button" className="btn-ghost btn-sm" onClick={(e) => { stop(e); setDel(false); setTyped(''); }}>Cancel</button><button type="button" className="btn btn-sm bg-ember text-white hover:bg-ember/90" disabled={busy || typed.trim().toLowerCase() !== p.name.trim().toLowerCase()} onClick={(e) => { stop(e); remove(); }}>Delete forever</button></div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -216,7 +272,7 @@ export default function Projects() {
                       <div className="flex items-center gap-2 text-xs text-muted"><span className="font-semibold">{p.code}</span><span className="truncate">{p.Client?.name || 'Internal'}</span></div>
                       <h3 className="mt-0.5 truncate text-lg font-semibold group-hover:underline">{p.name}</h3>
                     </div>
-                    <HealthBadge state={p.health?.state} />
+                    <div className="flex items-start gap-1"><HealthBadge state={p.health?.state} />{can('projects.manage') && <QuickEdit p={p} onChanged={reload} />}</div>
                   </div>
                   {p.description && <p className="mt-3 line-clamp-2 text-sm text-muted">{p.description}</p>}
                   <div className="mt-4 flex items-center gap-3"><Bar value={p.progress} color={p.color} height={6} /><span className="font-display text-sm font-semibold">{p.progress}%</span></div>
@@ -229,7 +285,7 @@ export default function Projects() {
                     <span className="chip bg-sunken text-muted">{(p.counts.todo || 0) + (p.counts.backlog || 0)} to do</span>
                     {p.overdue > 0 && <span className="chip bg-ember/10 text-ember">{p.overdue} overdue</span>}
                   </div>
-                  {over != null && (
+                  {over != null && p.budget > 0 && (
                     <div className="mt-4">
                       <div className="mb-1 flex justify-between text-xs"><span className="text-muted">Budget</span><span className={over > 100 ? 'font-semibold text-ember' : 'text-muted'}>{money(p.spent, p.currency)} of {money(p.budget, p.currency)}</span></div>
                       <Bar value={over} color={over > 100 ? 'rgb(var(--c-ember))' : over > 85 ? 'rgb(var(--c-amber))' : 'rgb(var(--c-leaf))'} height={4} />

@@ -53,6 +53,19 @@ function Overview({ p, reload }) {
           <div className="px-5 py-4"><div className="text-xs text-muted">Time logged</div><div className="font-display text-[28px] font-semibold leading-none">{minutes(p.minutesLogged)}</div><div className="mt-1 text-xs text-muted">{p.daysLeft == null ? 'Open ended' : p.daysLeft < 0 ? `${-p.daysLeft} days late` : `${p.daysLeft} days left`}</div></div>
         </section>
 
+        {(p.reviewPurgeOn || p.reviewPurgedAt) && (
+          <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-line bg-sunken/50 px-4 py-3 text-sm">
+            <Trash2 size={16} className="shrink-0 text-muted" />
+            <p className="min-w-0 flex-1 text-muted">{p.reviewPurgedAt
+              ? <>Review files and pinned feedback were cleared on <b className="text-ink">{fmtDate(p.reviewPurgedAt)}</b> to save storage.</>
+              : <>This project is completed. Review files and pinned feedback will be deleted on <b className="text-ink">{fmtDate(p.reviewPurgeOn)}</b>. Download anything you want to keep.</>}</p>
+            {!p.reviewPurgedAt && p.canManage && <button type="button" className="btn-ghost btn-sm" onClick={async () => {
+              if (!(await confirm({ title: 'Delete review data now?', body: 'Reviewed images and videos, comment images and pinned feedback on this project are removed for good.', danger: true }))) return;
+              try { const { data } = await api.post(`/projects/${p.id}/purge-review`); toast.success(`Removed ${data.files} files`); reload(); } catch (err) { toast.error(err.message); }
+            }}>Delete now</button>}
+          </section>
+        )}
+
         {p.alerts?.length > 0 && (
           <Panel title="Needs attention" icon={AlertTriangle} action={<button type="button" className="btn-ai btn-sm" onClick={() => ask(`How do I get ${p.name} back on track? Look at its overdue and blocked tasks.`)}><Sparkles size={13} />Ask Orbit</button>}>
             <ul className="space-y-2.5">

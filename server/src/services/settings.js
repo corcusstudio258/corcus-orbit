@@ -7,6 +7,7 @@ const DEFAULTS = {
     accent: '#3DE0F2',
     workStart: '10:00',
     timezone: 'Asia/Kolkata',
+    reviewRetentionDays: 30, // 0 keeps review data forever
   },
   ai: {
     enabled: true,

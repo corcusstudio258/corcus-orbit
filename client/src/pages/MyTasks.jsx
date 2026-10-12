@@ -72,9 +72,10 @@ function Agenda() {
 
 export default function MyTasks() {
   const [params, setParams] = useSearchParams();
-  const tab = params.get('tab') || 'agenda';
+  const hasFilter = ['status', 'due', 'from', 'to', 'priority', 'projectId', 'q'].some((k) => params.get(k));
+  const tab = params.get('tab') || (hasFilter ? 'assigned' : 'agenda');
   const compose = useComposer();
-  const setTab = (t) => { const p = new URLSearchParams(params); p.set('tab', t); setParams(p); };
+  const setTab = (t) => { const p = new URLSearchParams(); p.set('tab', t); setParams(p); };
   return (
     <div>
       <PageHeader title="My tasks" subtitle="Everything on your plate, at any level of a task tree." actions={<button type="button" className="btn-primary" onClick={() => compose()}><Plus size={16} />New task</button>} />
@@ -85,9 +86,9 @@ export default function MyTasks() {
         { value: 'watching', label: 'Watching', icon: Bell },
       ]} /></div>
       {tab === 'agenda' && <Agenda />}
-      {tab === 'assigned' && <TaskExplorer fixed={{ assignee: 'me' }} storageKey="mine" defaultGroup="project" />}
-      {tab === 'created' && <TaskExplorer fixed={{ createdBy: 'me' }} storageKey="created" defaultGroup="status" />}
-      {tab === 'watching' && <TaskExplorer fixed={{ watching: 'me' }} storageKey="watching" defaultGroup="project" />}
+      {tab === 'assigned' && <TaskExplorer key="assigned" syncUrl fixed={{ assignee: 'me' }} storageKey="mine" defaultGroup="project" />}
+      {tab === 'created' && <TaskExplorer key="created" syncUrl fixed={{ createdBy: 'me' }} storageKey="created" defaultGroup="status" />}
+      {tab === 'watching' && <TaskExplorer key="watching" syncUrl fixed={{ watching: 'me' }} storageKey="watching" defaultGroup="project" />}
     </div>
   );
 }

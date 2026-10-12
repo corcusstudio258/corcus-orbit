@@ -5,8 +5,8 @@ import { Plus, X, Sparkles, Repeat, ListTree, ChevronDown } from 'lucide-react';
 import api from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useDirectory, useProjects, useAiStatus } from '../lib/directory';
-import { Modal, Field, UserPicker, Toggle, Spinner } from './ui';
-import { PRIORITY, toLocalInput } from '../lib/format';
+import { Modal, Field, UserPicker, Toggle, Spinner, DueInput } from './ui';
+import { PRIORITY } from '../lib/format';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -37,7 +37,7 @@ export default function TaskForm({ open, onClose, defaults = {}, onCreated }) {
   const ai = useAiStatus();
   const blank = () => ({
     title: defaults.title || '', description: '', projectId: defaults.projectId || '', status: defaults.status || 'todo', priority: defaults.priority || 'medium',
-    assigneeIds: defaults.assigneeIds || (can('tasks.assign') ? [] : [user.id]), dueDate: defaults.dueDate ? toLocalInput(defaults.dueDate) : '', startDate: '',
+    assigneeIds: defaults.assigneeIds || (can('tasks.assign') ? [] : [user.id]), dueDate: defaults.dueDate || '', startDate: '',
     estimateHours: '', storyPoints: '', milestoneId: '', sectionId: defaults.sectionId || '', sprintId: defaults.sprintId || '',
     clientVisible: !!defaults.clientVisible, requiresApproval: false, checklist: [], subtasks: [], tags: '', recurrence: null,
   });
@@ -67,7 +67,7 @@ export default function TaskForm({ open, onClose, defaults = {}, onCreated }) {
       setF((s) => ({
         ...s, title: data.title || s.title, description: data.description || s.description, projectId: defaults.parentId ? s.projectId : (data.projectId || s.projectId),
         priority: data.priority || s.priority, assigneeIds: can('tasks.assign') && data.assigneeIds?.length ? data.assigneeIds : s.assigneeIds,
-        dueDate: data.dueDate ? toLocalInput(data.dueDate) : s.dueDate, startDate: data.startDate || s.startDate, tags: (data.tags || []).join(', ') || s.tags,
+        dueDate: data.dueDate || s.dueDate, startDate: data.startDate || s.startDate, tags: (data.tags || []).join(', ') || s.tags,
         checklist: data.checklist?.length ? data.checklist : s.checklist, subtasks: data.subtasks?.length ? data.subtasks : s.subtasks,
         estimateHours: data.estimateHours || s.estimateHours,
       }));
@@ -84,7 +84,7 @@ export default function TaskForm({ open, onClose, defaults = {}, onCreated }) {
     try {
       const payload = {
         ...f, parentId: defaults.parentId || undefined, projectId: f.projectId || null,
-        dueDate: f.dueDate ? new Date(f.dueDate).toISOString() : null, startDate: f.startDate || null,
+        dueDate: f.dueDate || null, startDate: f.startDate || null,
         estimateHours: f.estimateHours ? Number(f.estimateHours) : null, storyPoints: f.storyPoints ? Number(f.storyPoints) : null,
         milestoneId: f.milestoneId || null, sectionId: f.sectionId || null, sprintId: f.sprintId || null,
         tags: f.tags.split(',').map((t) => t.trim()).filter(Boolean),
@@ -141,7 +141,7 @@ export default function TaskForm({ open, onClose, defaults = {}, onCreated }) {
             </div>
           </Field>
           <Field label="Start date"><input type="date" className="input" value={f.startDate} onChange={set('startDate')} /></Field>
-          <Field label="Due"><input type="datetime-local" className="input" value={f.dueDate} onChange={set('dueDate')} /></Field>
+          <div><span className="label">Due date and time</span><DueInput value={f.dueDate} onChange={(v) => setF((s) => ({ ...s, dueDate: v }))} /></div>
           {meta.sprints.length > 0 && (
             <Field label="Sprint">
               <select className="input" value={f.sprintId} onChange={set('sprintId')}><option value="">Backlog</option>{meta.sprints.map((s) => <option key={s.id} value={s.id}>{s.name}{s.status === 'active' ? ' (active)' : ''}</option>)}</select>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
-import { Plus, Workflow, Sparkles, Trash2, Pencil, Play, Zap, ArrowDown, LayoutTemplate, Upload, Download, FileSpreadsheet, Database, Check, X } from 'lucide-react';
+import { Plus, Workflow, Sparkles, Trash2, Pencil, Play, Zap, ArrowDown, LayoutTemplate, Upload, Download, FileSpreadsheet, Database, Check, X, Copy } from 'lucide-react';
 import api, { download } from '../lib/api';
 import useFetch from '../lib/useFetch';
 import { useAuth } from '../context/AuthContext';
@@ -22,6 +22,8 @@ function describe(rule, triggers, actions, people, projects) {
   if (c.priority) bits.push(`priority ${PRIORITY[c.priority]?.label}`);
   if (c.projectId) bits.push(`in ${projects.find((p) => p.id === Number(c.projectId))?.name || 'a project'}`);
   if (c.tag) bits.push(`tagged ${c.tag}`);
+  if (c.decision) bits.push(c.decision === 'approve' ? 'when approved' : 'when changes are asked');
+  if (c.clientVisible) bits.push('shared with the client');
   const acts = (rule.actions || []).map((a) => {
     const who = a.to === 'user' ? people.find((p) => p.id === Number(a.userId))?.name : a.to === 'phone' ? a.phone : TO[a.to]?.toLowerCase();
     if (a.type === 'notify') return `notify ${who || 'assignees'}`;
@@ -31,7 +33,16 @@ function describe(rule, triggers, actions, people, projects) {
     if (a.type === 'assign') return `assign ${people.find((p) => p.id === Number(a.userId))?.name || 'someone'}`;
     if (a.type === 'comment') return 'post a comment';
     if (a.type === 'points') return `give ${a.points || 0} points`;
-    if (a.type === 'move_section') return `move to section ${a.sectionName}`;
+    if (a.type === 'move_section') return `move to stage ${a.sectionName}`;
+    if (a.type === 'email') return `email ${who || 'assignees'}`;
+    if (a.type === 'notify_client') return 'notify the client';
+    if (a.type === 'add_tag') return `tag #${a.tag}`;
+    if (a.type === 'add_watcher') return `add ${people.find((p) => p.id === Number(a.userId))?.name || 'someone'} as watcher`;
+    if (a.type === 'set_due') return `set due in ${a.days || 0} days at ${a.time || '18:00'}`;
+    if (a.type === 'create_subtask') return `create subtask "${a.title}"`;
+    if (a.type === 'add_checklist') return 'add checklist items';
+    if (a.type === 'share_client') return 'share with the client';
+    if (a.type === 'archive') return 'archive it';
     return actions[a.type];
   });
   return { when: `${triggers[rule.trigger] || rule.trigger}${bits.length ? `, ${bits.join(', ')}` : ''}`, then: acts.join(', then ') };
@@ -87,6 +98,8 @@ function RuleBuilder({ open, onClose, rule, meta, onSaved }) {
             <Field label="Priority is">{sel(r.conditions.priority, (v) => setC('priority', v), prioOpts)}</Field>
             <Field label="In project">{sel(r.conditions.projectId, (v) => setC('projectId', v ? Number(v) : undefined), projects.map((p) => [p.id, `${p.code} ${p.name}`]))}</Field>
             <Field label="Has tag"><input className="input" value={r.conditions.tag || ''} onChange={(e) => setC('tag', e.target.value)} placeholder="Any" /></Field>
+            {['task.client_review', 'task.approval'].includes(r.trigger) && <Field label="Decision">{sel(r.conditions.decision, (v) => setC('decision', v), [['approve', 'Approved'], ['changes', 'Changes asked']])}</Field>}
+            <div className="flex items-end pb-2"><Toggle checked={!!r.conditions.clientVisible} onChange={(v) => setC('clientVisible', v || undefined)} label="Only tasks shared with the client" /></div>
           </div>
         </div>
         <div className="flex justify-center text-faint"><ArrowDown size={18} /></div>
@@ -95,12 +108,12 @@ function RuleBuilder({ open, onClose, rule, meta, onSaved }) {
           {r.actions.map((a, i) => (
             <div key={i} className="space-y-3 rounded-xl bg-sunken/60 p-3">
               <div className="flex gap-2">{sel(a.type, (v) => setA(i, { type: v }), Object.entries(meta.actions), false)}{r.actions.length > 1 && <button type="button" className="btn-ghost btn-sm" onClick={() => setR({ ...r, actions: r.actions.filter((_, j) => j !== i) })} aria-label="Remove action"><X size={14} /></button>}</div>
-              {['notify', 'whatsapp'].includes(a.type) && (
+              {['notify', 'whatsapp', 'email'].includes(a.type) && (
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="To">{sel(a.to, (v) => setA(i, { to: v }), Object.entries(TO).filter(([k]) => k !== 'phone' || a.type === 'whatsapp'), false)}</Field>
                   {a.to === 'user' && <Field label="Person">{sel(a.userId, (v) => setA(i, { userId: Number(v) }), people.map((p) => [p.id, p.name]), 'Pick')}</Field>}
                   {a.to === 'phone' && <Field label="Phone"><input className="input" value={a.phone || ''} onChange={(e) => setA(i, { phone: e.target.value })} placeholder="+91 98..." /></Field>}
-                  {a.type === 'notify' && <Field label="Title" className="sm:col-span-2"><input className="input" value={a.title || ''} onChange={(e) => setA(i, { title: e.target.value })} placeholder="{{task.key}} is blocked" /></Field>}
+                  {['notify', 'email'].includes(a.type) && <Field label={a.type === 'email' ? 'Subject' : 'Title'} className="sm:col-span-2"><input className="input" value={a.title || ''} onChange={(e) => setA(i, { title: e.target.value })} placeholder="{{task.key}} is blocked" /></Field>}
                   <Field label="Message" className="sm:col-span-2" hint="Use {{task.key}}, {{task.title}}, {{project.name}}, {{actor.name}}, {{from}}, {{to}}"><textarea className="input" rows={2} value={a.message || ''} onChange={(e) => setA(i, { message: e.target.value })} /></Field>
                 </div>
               )}
@@ -109,13 +122,44 @@ function RuleBuilder({ open, onClose, rule, meta, onSaved }) {
               {a.type === 'assign' && <Field label="Person">{sel(a.userId, (v) => setA(i, { userId: Number(v) }), people.map((p) => [p.id, p.name]), 'Pick')}</Field>}
               {a.type === 'comment' && <Field label="Comment"><textarea className="input" rows={2} value={a.message || ''} onChange={(e) => setA(i, { message: e.target.value })} /></Field>}
               {a.type === 'points' && <div className="grid gap-3 sm:grid-cols-2"><Field label="Points"><input type="number" className="input" value={a.points || ''} onChange={(e) => setA(i, { points: Number(e.target.value) })} /></Field><Field label="To">{sel(a.to, (v) => setA(i, { to: v }), [['assignees', 'Assignees'], ['creator', 'Creator']], false)}</Field></div>}
-              {a.type === 'move_section' && <Field label="Section name"><input className="input" value={a.sectionName || ''} onChange={(e) => setA(i, { sectionName: e.target.value })} /></Field>}
+              {a.type === 'notify_client' && <div className="grid gap-3"><Field label="Title"><input className="input" value={a.title || ''} onChange={(e) => setA(i, { title: e.target.value })} placeholder="{{task.title}} has an update" /></Field><Field label="Message"><textarea className="input" rows={2} value={a.message || ''} onChange={(e) => setA(i, { message: e.target.value })} /></Field></div>}
+              {a.type === 'add_tag' && <Field label="Tag"><input className="input" value={a.tag || ''} onChange={(e) => setA(i, { tag: e.target.value })} placeholder="needs-qa" /></Field>}
+              {a.type === 'add_watcher' && <Field label="Person">{sel(a.userId, (v) => setA(i, { userId: Number(v) }), people.map((p) => [p.id, p.name]), 'Pick')}</Field>}
+              {a.type === 'set_due' && <div className="grid grid-cols-2 gap-3"><Field label="Days from now"><input type="number" min="0" className="input" value={a.days ?? 3} onChange={(e) => setA(i, { days: Number(e.target.value) })} /></Field><Field label="Time"><input type="time" className="input" value={a.time || '18:00'} onChange={(e) => setA(i, { time: e.target.value })} /></Field></div>}
+              {a.type === 'create_subtask' && <Field label="Subtask title" hint="You can use {{task.title}}"><input className="input" value={a.title || ''} onChange={(e) => setA(i, { title: e.target.value })} /></Field>}
+              {a.type === 'add_checklist' && <Field label="Checklist items" hint="One per line"><textarea className="input" rows={3} value={String(a.items || '').replace(/; /g, '\n')} onChange={(e) => setA(i, { items: e.target.value })} /></Field>}
+              {['share_client', 'archive'].includes(a.type) && <p className="text-xs text-muted">No settings needed.</p>}
+              {a.type === 'move_section' && <Field label="Stage name"><input className="input" value={a.sectionName || ''} onChange={(e) => setA(i, { sectionName: e.target.value })} /></Field>}
             </div>
           ))}
           <button type="button" className="btn-ghost btn-sm" onClick={() => setR({ ...r, actions: [...r.actions, { type: 'notify', to: 'assignees' }] })}><Plus size={13} />Another action</button>
         </div>
       </div>
     </Modal>
+  );
+}
+
+function Recipes({ recipes, rules, onAdded }) {
+  const [group, setGroup] = useState('');
+  const [busy, setBusy] = useState('');
+  const groups = [...new Set(recipes.map((x) => x.group))];
+  const has = (rc) => rules.some((x) => x.name === rc.name);
+  const add = async (rc) => { setBusy(rc.key); try { await api.post('/tools/automations/recipe', { key: rc.key }); toast.success(`Added: ${rc.name}`); onAdded(); } catch (err) { toast.error(err.message); } finally { setBusy(''); } };
+  const ICON = { Reviews: '👀', Clients: '🤝', Deadlines: '⏰', Workflow: '⚙️', 'Tidy up': '✨' };
+  return (
+    <section className="panel p-5">
+      <div className="mb-3 flex flex-wrap items-center gap-2"><h2 className="section-title">Recipes</h2><span className="text-xs text-muted">Ready-made automations. Add one, then tweak it if you like.</span>
+        <div className="ml-auto"><Segmented size="sm" value={group} onChange={setGroup} options={[{ value: '', label: 'All' }, ...groups.map((g) => ({ value: g, label: g }))]} /></div></div>
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {recipes.filter((rc) => !group || rc.group === group).map((rc) => (
+          <div key={rc.key} className="flex items-start gap-3 rounded-xl border border-line p-3">
+            <span className="text-xl leading-none">{ICON[rc.group] || '⚡'}</span>
+            <div className="min-w-0 flex-1"><p className="text-sm font-semibold leading-snug">{rc.name}</p><p className="mt-0.5 text-[11px] text-muted">{rc.group}</p></div>
+            {has(rc) ? <span className="chip bg-leaf/10 text-leaf"><Check size={11} />Added</span> : <button type="button" className="btn-ghost btn-sm shrink-0" disabled={busy === rc.key} onClick={() => add(rc)}><Plus size={13} />Add</button>}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -134,7 +178,9 @@ export function Automations() {
     <div>
       <PageHeader title="Automations" subtitle="When something happens to a task, Orbit does the follow-up for you."
         actions={data.canEdit && <button type="button" className="btn-primary" onClick={() => setEdit({})}><Plus size={16} />New automation</button>} />
-      {!data.rules.length ? <div className="panel"><Empty icon={Workflow} title="No automations yet" body="Try: when a task moves to Review, notify the project lead." /></div> : (
+      {data.canEdit && data.recipes?.length > 0 && <Recipes recipes={data.recipes} rules={data.rules} onAdded={reload} />}
+      <h2 className="mb-3 mt-6 section-title">Your automations <span className="text-sm font-normal text-muted">{data.rules.length}</span></h2>
+      {!data.rules.length ? <div className="panel"><Empty icon={Workflow} title="No automations yet" body="Add a recipe above, or build your own." /></div> : (
         <div className="grid gap-3 lg:grid-cols-2">
           {data.rules.map((a) => {
             const d = describe(a, data.triggers, data.actions, people, projects);
@@ -195,6 +241,111 @@ function TemplatePreview({ id }) {
   );
 }
 
+const TPL_ICONS = ['📦', '📅', '📣', '🎬', '🎨', '🖥️', '🤝', '🛒', '🏥', '☀️', '🏗️', '🎯', '📸', '✍️', '🚀'];
+const blankTask = (section) => ({ title: '', section: section || '', offsetDays: 0, priority: 'medium', estimateHours: '', subtasks: '' });
+
+export function TemplateBuilder({ open, onClose, template, onSaved }) {
+  const [f, setF] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!open) { setF(null); return; }
+    const st = template?.structure || {};
+    setF({
+      name: template?.name || '', description: template?.description || '', category: template?.category || 'Marketing', icon: template?.icon || '📦',
+      sections: (st.sections || [{ name: 'Plan' }, { name: 'Make' }, { name: 'Deliver' }]).map((x) => x.name),
+      milestones: (st.milestones || []).map((m) => ({ title: m.title, offsetDays: m.offsetDays ?? 0 })),
+      tasks: (st.tasks || []).length ? st.tasks.map((t) => ({ title: t.title, section: t.section || '', offsetDays: t.offsetDays ?? 0, priority: t.priority || 'medium', estimateHours: t.estimateHours || '', subtasks: (t.subtasks || []).map((x) => (typeof x === 'string' ? x : x.title)).join(', ') }))
+        : [blankTask((st.sections || [{ name: 'Plan' }])[0]?.name || 'Plan')],
+    });
+  }, [open, template]);
+  if (!open || !f) return null;
+  const setT = (i, patch) => setF((x) => ({ ...x, tasks: x.tasks.map((t, j) => (j === i ? { ...t, ...patch } : t)) }));
+  const moveT = (i, d) => setF((x) => { const ts = [...x.tasks]; const j = i + d; if (j < 0 || j >= ts.length) return x; [ts[i], ts[j]] = [ts[j], ts[i]]; return { ...x, tasks: ts }; });
+  const save = async () => {
+    const tasks = f.tasks.filter((t) => t.title.trim());
+    if (!f.name.trim()) return toast.error('Name the template.');
+    if (!tasks.length) return toast.error('Add at least one task.');
+    const structure = {
+      sections: f.sections.filter((x) => x.trim()).map((name) => ({ name: name.trim() })),
+      milestones: f.milestones.filter((m) => m.title.trim()).map((m) => ({ title: m.title.trim(), offsetDays: Number(m.offsetDays) || 0 })),
+      tasks: tasks.map((t) => ({ title: t.title.trim(), section: t.section || undefined, offsetDays: Number(t.offsetDays) || 0, priority: t.priority, estimateHours: Number(t.estimateHours) || undefined,
+        subtasks: String(t.subtasks || '').split(',').map((x) => x.trim()).filter(Boolean).map((title) => ({ title })) })),
+    };
+    setBusy(true);
+    try {
+      const body = { name: f.name, description: f.description, category: f.category, icon: f.icon, structure };
+      const { data } = template?.id ? await api.patch(`/tools/templates/${template.id}`, body) : await api.post('/tools/templates', body);
+      toast.success('Template saved'); onSaved(data); onClose();
+    } catch (err) { toast.error(err.message); } finally { setBusy(false); }
+  };
+  const days = Math.max(0, ...f.tasks.map((t) => Number(t.offsetDays) || 0), ...f.milestones.map((m) => Number(m.offsetDays) || 0));
+  return (
+    <Modal open onClose={onClose} title={template?.id ? 'Edit template' : 'Create a template'} subtitle="Stages, milestones and tasks. Days count from the project start date." width="max-w-4xl"
+      footer={<><span className="mr-auto text-xs text-muted">{f.tasks.filter((t) => t.title.trim()).length} tasks over about {days} days</span><button type="button" className="btn-ghost" onClick={onClose}>Cancel</button><button type="button" className="btn-primary" disabled={busy} onClick={save}>Save template</button></>}>
+      <div className="space-y-6">
+        <div className="grid gap-3 sm:grid-cols-[72px_1fr_180px]">
+          <Field label="Icon"><select className="input text-center text-lg" value={f.icon} onChange={(e) => setF({ ...f, icon: e.target.value })}>{TPL_ICONS.map((i) => <option key={i}>{i}</option>)}</select></Field>
+          <Field label="Name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Monthly content retainer" autoFocus /></Field>
+          <Field label="Category"><input className="input" list="tpl-cats" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} /><datalist id="tpl-cats"><option>Marketing</option><option>Design</option><option>Development</option><option>General</option></datalist></Field>
+          <Field label="What it's for" className="sm:col-span-3"><input className="input" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} placeholder="Everything for one month of Instagram and Facebook for a client" /></Field>
+        </div>
+        <section>
+          <h3 className="mb-2 text-sm font-semibold">Pipeline stages</h3>
+          <div className="flex flex-wrap gap-2">
+            {f.sections.map((sname, i) => (
+              <span key={i} className="inline-flex items-center gap-1 rounded-full border border-line bg-surface py-0.5 pl-3 pr-1">
+                <input className="w-28 bg-transparent text-sm outline-none" value={sname} onChange={(e) => setF((x) => ({ ...x, sections: x.sections.map((y, j) => (j === i ? e.target.value : y)), tasks: x.tasks.map((t) => (t.section === sname ? { ...t, section: e.target.value } : t)) }))} />
+                <button type="button" className="rounded-full p-1 text-muted hover:text-ember" onClick={() => setF((x) => ({ ...x, sections: x.sections.filter((_, j) => j !== i) }))} aria-label="Remove stage"><X size={12} /></button>
+              </span>
+            ))}
+            <button type="button" className="btn-ghost btn-sm" onClick={() => setF((x) => ({ ...x, sections: [...x.sections, `Stage ${x.sections.length + 1}`] }))}><Plus size={13} />Stage</button>
+          </div>
+        </section>
+        <section>
+          <h3 className="mb-2 text-sm font-semibold">Milestones</h3>
+          <div className="space-y-2">
+            {f.milestones.map((m, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="text-amber">◆</span>
+                <input className="input !py-1.5" value={m.title} onChange={(e) => setF((x) => ({ ...x, milestones: x.milestones.map((y, j) => (j === i ? { ...y, title: e.target.value } : y)) }))} placeholder="Content approved" />
+                <span className="shrink-0 text-xs text-muted">day</span>
+                <input type="number" min="0" className="input !w-20 !py-1.5" value={m.offsetDays} onChange={(e) => setF((x) => ({ ...x, milestones: x.milestones.map((y, j) => (j === i ? { ...y, offsetDays: e.target.value } : y)) }))} />
+                <button type="button" className="rounded p-1 text-muted hover:text-ember" onClick={() => setF((x) => ({ ...x, milestones: x.milestones.filter((_, j) => j !== i) }))} aria-label="Remove"><X size={14} /></button>
+              </div>
+            ))}
+            <button type="button" className="btn-ghost btn-sm" onClick={() => setF((x) => ({ ...x, milestones: [...x.milestones, { title: '', offsetDays: days }] }))}><Plus size={13} />Milestone</button>
+          </div>
+        </section>
+        <section>
+          <h3 className="mb-2 text-sm font-semibold">Tasks</h3>
+          <div className="space-y-2">
+            {f.tasks.map((t, i) => (
+              <div key={i} className="rounded-xl border border-line bg-surface p-2.5">
+                <div className="grid gap-2 sm:grid-cols-[1fr_140px_80px_110px_auto]">
+                  <input className="input !py-1.5" value={t.title} onChange={(e) => setT(i, { title: e.target.value })} placeholder="Write 30 captions" />
+                  <select className="input !py-1.5" value={t.section} onChange={(e) => setT(i, { section: e.target.value })}><option value="">First stage</option>{f.sections.filter(Boolean).map((x) => <option key={x}>{x}</option>)}</select>
+                  <label className="relative"><input type="number" min="0" className="input !py-1.5 pr-9" value={t.offsetDays} onChange={(e) => setT(i, { offsetDays: e.target.value })} aria-label="Due day" /><span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-faint">day</span></label>
+                  <select className="input !py-1.5" value={t.priority} onChange={(e) => setT(i, { priority: e.target.value })}>{PRIORITY_ORDER.map((k) => <option key={k} value={k}>{PRIORITY[k].label}</option>)}</select>
+                  <div className="flex items-center gap-0.5">
+                    <button type="button" className="rounded p-1 text-muted hover:bg-sunken disabled:opacity-30" disabled={i === 0} onClick={() => moveT(i, -1)} aria-label="Up"><ArrowDown size={13} className="rotate-180" /></button>
+                    <button type="button" className="rounded p-1 text-muted hover:bg-sunken disabled:opacity-30" disabled={i === f.tasks.length - 1} onClick={() => moveT(i, 1)} aria-label="Down"><ArrowDown size={13} /></button>
+                    <button type="button" className="rounded p-1 text-muted hover:text-ember" onClick={() => setF((x) => ({ ...x, tasks: x.tasks.filter((_, j) => j !== i) }))} aria-label="Remove task"><Trash2 size={13} /></button>
+                  </div>
+                </div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_120px]">
+                  <input className="input !py-1.5 text-xs" value={t.subtasks} onChange={(e) => setT(i, { subtasks: e.target.value })} placeholder="Subtasks, comma separated (optional)" />
+                  <input type="number" min="0" step="0.5" className="input !py-1.5 text-xs" value={t.estimateHours} onChange={(e) => setT(i, { estimateHours: e.target.value })} placeholder="Hours" />
+                </div>
+              </div>
+            ))}
+            <button type="button" className="btn-ghost btn-sm" onClick={() => setF((x) => ({ ...x, tasks: [...x.tasks, blankTask(x.tasks[x.tasks.length - 1]?.section || x.sections[0])] }))}><Plus size={13} />Task</button>
+          </div>
+        </section>
+      </div>
+    </Modal>
+  );
+}
+
 export function Templates() {
   const { can } = useAuth();
   const nav = useNavigate();
@@ -202,6 +353,7 @@ export function Templates() {
   const [cat, setCat] = useState('');
   const [view, setView] = useState(null);
   const [use, setUse] = useState(false);
+  const [builder, setBuilder] = useState(null);
   const cats = useMemo(() => [...new Set((data || []).map((t) => t.category).filter(Boolean))], [data]);
   if (!data) return <PageLoader />;
   const list = data.filter((t) => !cat || t.category === cat);
@@ -209,7 +361,8 @@ export function Templates() {
 
   return (
     <div>
-      <PageHeader title="Templates" subtitle="Ready-made project plans for the work you repeat. Use one, or save any project as a template from its menu." />
+      <PageHeader title="Templates" subtitle="Ready-made project plans for the work you repeat. Build your own, or save any project as a template from its menu."
+        actions={can('templates.manage', 'projects.manage') && <button type="button" className="btn-primary" onClick={() => setBuilder({})}><Plus size={16} />Create template</button>} />
       {cats.length > 1 && <div className="mb-5"><Segmented value={cat} onChange={setCat} options={[{ value: '', label: 'All' }, ...cats.map((c) => ({ value: c, label: c }))]} /></div>}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {list.map((t) => (
@@ -224,9 +377,10 @@ export function Templates() {
         ))}
       </div>
       <Modal open={!!view} onClose={() => setView(null)} title={view ? `${view.icon || ''} ${view.name}` : ''} subtitle={view?.description} width="max-w-2xl"
-        footer={view && <>{can('projects.manage') && (!view.isSystem || can('settings.manage')) && <button type="button" className="btn-ghost mr-auto text-ember" onClick={() => remove(view)}><Trash2 size={14} />Delete</button>}<button type="button" className="btn-ghost" onClick={() => setView(null)}>Close</button>{can('projects.manage') && <button type="button" className="btn-primary" onClick={() => setUse(true)}><LayoutTemplate size={15} />Start a project from it</button>}</>}>
+        footer={view && <>{can('projects.manage') && (!view.isSystem || can('settings.manage')) && <button type="button" className="btn-ghost mr-auto text-ember" onClick={() => remove(view)}><Trash2 size={14} />Delete</button>}<button type="button" className="btn-ghost" onClick={() => setView(null)}>Close</button>{can('templates.manage') && !view.isSystem && <button type="button" className="btn-ghost" onClick={async () => { const { data: full } = await api.get(`/tools/templates/${view.id}`); setBuilder(full); }}><Pencil size={14} />Edit</button>}{can('templates.manage') && <button type="button" className="btn-ghost" onClick={async () => { const { data: full } = await api.get(`/tools/templates/${view.id}`); setBuilder({ ...full, id: undefined, name: `${full.name} (copy)` }); }}><Copy size={14} />Duplicate</button>}{can('projects.manage') && <button type="button" className="btn-primary" onClick={() => setUse(true)}><LayoutTemplate size={15} />Start a project from it</button>}</>}>
         {view && <TemplatePreview id={view.id} />}
       </Modal>
+      <TemplateBuilder open={!!builder} template={builder?.name !== undefined ? builder : null} onClose={() => setBuilder(null)} onSaved={() => { reload(); setView(null); }} />
       {use && view && <ProjectForm open onClose={() => setUse(false)} initialTemplateId={view.id} onSaved={(p) => { setUse(false); setView(null); nav(`/projects/${p.id}`); }} />}
     </div>
   );

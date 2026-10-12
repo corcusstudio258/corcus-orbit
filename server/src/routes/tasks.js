@@ -15,6 +15,7 @@ const { notify, activity } = require('../services/notify');
 const { emit } = require('../services/events');
 const { createTaskRecord, STATUS_LABEL, STATUSES, PRIORITIES } = require('../services/taskFactory');
 const socket = require('../services/socket');
+const media = require('../services/media');
 
 const UPLOAD_DIR = path.resolve(__dirname, '../..', process.env.UPLOAD_DIR || './uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -317,6 +318,7 @@ router.post('/reorder', wrap(async (req, res) => {
   await task.save();
   let notice = null;
   if (status && status !== task.status) ({ notice } = await applyStatus(req, task, status));
+  if (archivedNow) emit('task.archived', { task, actor: actorOf(req) });
   if (archivedNow) await activity({ actorId: req.user.id, action: 'task.archived', summary: `archived ${task.key} "${task.title}"`, taskId: task.id, projectId: task.projectId });
   broadcast(task);
   const full = await Task.findByPk(task.id, { include: listIncludes });
@@ -492,6 +494,7 @@ router.post('/:id/approval', wrap(async (req, res) => {
     taskId: task.id, projectId: task.projectId, clientVisible: task.clientVisible && approve });
   if (approve) await notifyClientIfVisible(task, `${task.title} is complete`, 'Open your portal to see the details.');
   emit('task.status', { task, from, to: task.status, actor: actorOf(req) });
+  emit('task.approval', { task, decision: approve ? 'approve' : 'changes', note: req.body.note || '', actor: actorOf(req) });
   broadcast(task);
   res.json(task);
 }));
@@ -600,8 +603,8 @@ router.post('/:id/comments', commentUpload.array('images', 6), wrap(async (req, 
     pinX: pinX != null ? Math.max(0, Math.min(1, pinX)) : null, pinY: pinY != null ? Math.max(0, Math.min(1, pinY)) : null, pinTime,
   });
   if (files.length) {
-    await Attachment.bulkCreate(files.map((f) => ({ taskId: task.id, commentId: c.id, userId: req.user.id, originalName: f.originalname, fileName: f.filename,
-      mime: f.mimetype, size: f.size, clientVisible: !c.internal, forReview: false })));
+    await media.compressAll(await Attachment.bulkCreate(files.map((f) => ({ taskId: task.id, commentId: c.id, userId: req.user.id, originalName: f.originalname, fileName: f.filename,
+      mime: f.mimetype, size: f.size, clientVisible: !c.internal, forReview: false }))), UPLOAD_DIR);
   }
   if (target && target.reviewStatus === 'approved') { target.reviewStatus = 'changes'; await target.save(); }
   await TaskWatcher.findOrCreate({ where: { taskId: task.id, userId: req.user.id } });
@@ -652,10 +655,13 @@ router.post('/:id/attachments', upload.array('files', 10), wrap(async (req, res)
   const rows = await Attachment.bulkCreate((req.files || []).map((f) => ({
     taskId: task.id, userId: req.user.id, originalName: f.originalname, fileName: f.filename, mime: f.mimetype, size: f.size,
     clientVisible: visible && task.clientVisible,
+    clientReviewStatus: visible && task.clientVisible && /^(image|video)\//.test(f.mimetype) ? 'requested' : 'none',
   })));
+  await media.compressAll(rows, UPLOAD_DIR, { onDone: () => broadcast(task) });
   await activity({ actorId: req.user.id, action: 'task.file', summary: `attached ${rows.length} file${rows.length > 1 ? 's' : ''} to ${task.key}`,
     taskId: task.id, projectId: task.projectId, clientVisible: visible && task.clientVisible });
   if (visible) await notifyClientIfVisible(task, `New file shared on ${task.title}`, rows.map((r) => r.originalName).join(', '));
+  emit('task.file', { task, file: { name: rows.map((r) => r.originalName).join(', ') }, actor: actorOf(req) });
   broadcast(task);
   res.status(201).json(rows);
 }));
@@ -669,6 +675,16 @@ router.patch('/attachments/:aid', wrap(async (req, res) => {
   if (['pending', 'approved', 'changes'].includes(req.body.reviewStatus)) {
     a.reviewStatus = req.body.reviewStatus;
     await activity({ actorId: req.user.id, action: 'task.file_review', summary: `${a.reviewStatus === 'approved' ? 'approved' : a.reviewStatus === 'changes' ? 'asked for changes on' : 'reopened'} ${a.originalName} on ${task.key}`, taskId: task.id, projectId: task.projectId, clientVisible: a.clientVisible });
+  }
+  // Ask the client to review this file (or withdraw the request).
+  if (req.body.clientReviewStatus === 'requested') {
+    if (!task.clientVisible) return res.status(400).json({ error: 'Share this task with the client first.' });
+    a.clientVisible = true; a.clientReviewStatus = 'requested'; a.clientReviewedAt = null;
+    await a.save();
+    await notifyClientIfVisible(task, `Please review ${a.originalName}`, `${req.user.name} shared ${a.originalName} on ${task.title} for your review.`);
+    await activity({ actorId: req.user.id, action: 'task.client_review_request', summary: `asked the client to review ${a.originalName} on ${task.key}`, taskId: task.id, projectId: task.projectId, clientVisible: true });
+  } else if (req.body.clientReviewStatus === 'none') {
+    a.clientReviewStatus = 'none'; a.clientReviewedAt = null;
   }
   await a.save();
   broadcast(task);

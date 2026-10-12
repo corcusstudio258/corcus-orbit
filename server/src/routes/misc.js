@@ -73,8 +73,9 @@ settingsRouter.post('/ai/test', requirePerm('settings.manage'), async (req, res)
   } catch (e) { res.status(e.status || 500).json({ ok: false, error: e.message }); }
 });
 settingsRouter.patch('/company', requirePerm('settings.manage'), async (req, res) => {
-  const allowed = ['name', 'tagline', 'accent', 'workStart', 'timezone', 'graceMinutes', 'dailyCapacity', 'currency'];
+  const allowed = ['name', 'tagline', 'accent', 'workStart', 'timezone', 'graceMinutes', 'dailyCapacity', 'currency', 'reviewRetentionDays'];
   const v = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
+  if (v.reviewRetentionDays !== undefined) v.reviewRetentionDays = Math.max(0, Math.min(3650, Math.round(Number(v.reviewRetentionDays) || 0)));
   res.json(await settings.set('company', v));
 });
 const SECRET_FIELD = { email: 'pass', firebase: 'apiKey', zoom: 'clientSecret' };

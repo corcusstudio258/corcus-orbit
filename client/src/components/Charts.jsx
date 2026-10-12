@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import { useEffect, useState } from 'react';
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell } from 'recharts';
 import { format } from 'date-fns';
@@ -91,7 +92,7 @@ export function BurndownChart({ data, height = 220, xKey = 'day', remainingKey =
 }
 
 /** Status donut: status colors are state colors, labelled in the list beside it. */
-export function StatusDonut({ data, size = 150 }) {
+export function StatusDonut({ data, size = 150, onSelect }) {
   const t = useTokens();
   const rows = data.filter((d) => d.count > 0);
   const total = rows.reduce((s, d) => s + d.count, 0);
@@ -109,26 +110,31 @@ export function StatusDonut({ data, size = 150 }) {
         <div className="pointer-events-none absolute inset-0 grid place-items-center text-center"><div><div className="font-display text-2xl font-semibold">{total}</div><div className="text-[11px] text-muted">tasks</div></div></div>
       </div>
       <ul className="min-w-[150px] flex-1 space-y-1.5 text-sm">
-        {data.map((d) => (
-          <li key={d.status} className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ background: STATUS[d.status]?.color }} />
-            <span className="flex-1 whitespace-nowrap text-muted">{STATUS[d.status]?.label}</span>
-            <span className="font-semibold">{d.count}</span>
-            <span className="w-10 text-right text-xs text-faint">{total ? Math.round((d.count / total) * 100) : 0}%</span>
-          </li>
-        ))}
+        {data.map((d) => {
+          const C = onSelect ? 'button' : 'div';
+          return (
+            <li key={d.status}>
+              <C {...(onSelect ? { type: 'button', onClick: () => onSelect(d.status), title: `Open ${STATUS[d.status]?.label} tasks` } : {})} className={clsx('flex w-full items-center gap-2 rounded-lg text-left', onSelect && '-mx-1.5 px-1.5 py-0.5 transition hover:bg-sunken')}>
+                <span className="h-2.5 w-2.5 rounded-full" style={{ background: STATUS[d.status]?.color }} />
+                <span className="flex-1 whitespace-nowrap text-muted">{STATUS[d.status]?.label}</span>
+                <span className="font-semibold">{d.count}</span>
+                <span className="w-10 text-right text-xs text-faint">{total ? Math.round((d.count / total) * 100) : 0}%</span>
+              </C>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
 }
 
-export function PriorityBars({ data }) {
+export function PriorityBars({ data, onSelect }) {
   const max = Math.max(1, ...data.map((d) => d.count));
   const total = data.reduce((s, d) => s + d.count, 0);
   return (
     <ul className="space-y-3">
       {data.map((d) => (
-        <li key={d.priority}>
+        <li key={d.priority} {...(onSelect ? { role: 'button', tabIndex: 0, onClick: () => onSelect(d.priority), onKeyDown: (e) => e.key === 'Enter' && onSelect(d.priority), className: '-mx-2 cursor-pointer rounded-lg px-2 py-1 transition hover:bg-sunken' } : {})}>
           <div className="mb-1 flex items-center justify-between text-sm"><span className="font-medium">{PRIORITY[d.priority].label}</span><span className="text-muted"><b className="text-ink">{d.count}</b> <span className="text-xs text-faint">({total ? Math.round((d.count / total) * 100) : 0}%)</span></span></div>
           <div className="h-2 overflow-hidden rounded-full bg-sunken" title={`${d.count} ${PRIORITY[d.priority].label.toLowerCase()} priority`}><div className="h-full rounded-full" style={{ width: `${(d.count / max) * 100}%`, background: PRIORITY[d.priority].color }} /></div>
         </li>

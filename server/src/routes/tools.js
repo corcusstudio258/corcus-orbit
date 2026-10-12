@@ -5,7 +5,7 @@ const {
   Automation, Template, Project, Task, User, Role, Client, Document, Section, TaskAssignee, Milestone, Activity, Attendance, PointEntry, Comment,
 } = require('../models');
 const { staffOnly, requirePerm } = require('../middleware/auth');
-const { TRIGGERS, ACTIONS, handle } = require('../services/automations');
+const { TRIGGERS, ACTIONS, RECIPES, handle } = require('../services/automations');
 const { snapshotProject, countTasks } = require('../services/structure');
 const { taskScope, visibleProjectIds } = require('../services/access');
 const { STATUS_LABEL } = require('../services/taskFactory');
@@ -20,7 +20,7 @@ const canAutomate = (req) => req.can('settings.manage') || req.can('automations.
 // ---------- automations ----------
 router.get('/automations', wrap(async (req, res) => {
   const rows = await Automation.findAll({ include: [{ model: User, as: 'creator', attributes: ['id', 'name'] }], order: [['active', 'DESC'], ['createdAt', 'DESC']] });
-  res.json({ rules: rows, triggers: TRIGGERS, actions: ACTIONS, canEdit: canAutomate(req) });
+  res.json({ rules: rows, triggers: TRIGGERS, actions: ACTIONS, recipes: RECIPES, canEdit: canAutomate(req) });
 }));
 
 function cleanRule(b) {
@@ -28,9 +28,18 @@ function cleanRule(b) {
   if (!TRIGGERS[b.trigger]) return [null, 'Pick when the automation should run.'];
   const actions = (b.actions || []).filter((a) => ACTIONS[a?.type]);
   if (!actions.length) return [null, 'Add at least one action.'];
-  const conditions = Object.fromEntries(Object.entries(b.conditions || {}).filter(([k, v]) => ['status', 'fromStatus', 'priority', 'projectId', 'tag'].includes(k) && v !== '' && v != null && v !== 0));
+  const conditions = Object.fromEntries(Object.entries(b.conditions || {}).filter(([k, v]) => ['status', 'fromStatus', 'priority', 'projectId', 'tag', 'decision', 'clientVisible'].includes(k) && v !== '' && v != null && v !== 0));
   return [{ name: b.name.trim().slice(0, 120), description: b.description || '', trigger: b.trigger, conditions, actions, active: b.active !== false }, null];
 }
+
+router.post('/automations/recipe', wrap(async (req, res) => {
+  if (!canAutomate(req)) return res.status(403).json({ error: 'Only admins and project managers can create automations.' });
+  const r = RECIPES.find((x) => x.key === req.body.key);
+  if (!r) return res.status(404).json({ error: 'Recipe not found.' });
+  const { key, group, ...rule } = r;
+  const conditions = { ...rule.conditions, ...(req.body.projectId ? { projectId: Number(req.body.projectId) } : {}) };
+  res.status(201).json(await Automation.create({ ...rule, conditions, active: true, createdById: req.user.id }));
+}));
 
 router.post('/automations', wrap(async (req, res) => {
   if (!canAutomate(req)) return res.status(403).json({ error: 'Only admins and project managers can create automations.' });

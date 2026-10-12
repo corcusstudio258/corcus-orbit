@@ -9,8 +9,8 @@ import {
 import api, { fileUrl } from '../lib/api';
 import { useAuth, useLive } from '../context/AuthContext';
 import { useDirectory, useAiStatus } from '../lib/directory';
-import { STATUS, PRIORITY, ago, minutes, bytes, toLocalInput, fmtDate } from '../lib/format';
-import { OrbitRing, Avatar, AvatarStack, StatusPill, DueBadge, PageLoader, UserPicker, Toggle, Bar, Modal, Menu, Markdown, Spinner, Tabs, confirm } from './ui';
+import { STATUS, PRIORITY, ago, minutes, bytes, fmtDate } from '../lib/format';
+import { OrbitRing, Avatar, AvatarStack, StatusPill, DueBadge, PageLoader, UserPicker, Toggle, Bar, Modal, Menu, Markdown, Spinner, Tabs, confirm, DueInput } from './ui';
 import { useComposer } from './Layout';
 import { celebrate, pointOf } from './Celebrate';
 import { CommentThread, ReviewBoard, toFormData } from './Review';
@@ -313,7 +313,7 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
 
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="block"><span className="label">Assignees</span><UserPicker compact users={assignable} value={t.assignees.map((a) => a.id)} disabled={!t.canEdit || !can('tasks.assign')} onChange={(ids) => patch({ assigneeIds: ids })} placeholder="Unassigned" /></label>
-          <label className="block"><span className="label">Due</span><input type="datetime-local" disabled={!t.canEdit} className="input !py-1.5" value={toLocalInput(t.dueDate)} onChange={(e) => patch({ dueDate: e.target.value ? new Date(e.target.value).toISOString() : '' })} /></label>
+          <div className="block"><span className="label">Due date and time</span><DueInput compact disabled={!t.canEdit} value={t.dueDate || ''} onChange={(v) => patch({ dueDate: v })} /></div>
           <label className="block"><span className="label">Priority</span>
             <select disabled={!t.canEdit} className="input !py-1.5" value={t.priority} onChange={(e) => patch({ priority: e.target.value })}>{Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
           </label>
@@ -398,6 +398,7 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
             setStatus={async (f, status, e) => { try { await api.patch(`/tasks/attachments/${f.id}`, { reviewStatus: status }); if (status === 'approved') celebrate('done', pointOf(e)); load(); } catch (err) { toast.error(err.message); } }}
             resolve={async (c, v) => { try { await api.patch(`/tasks/comments/${c.id}`, { resolved: v }); load(); } catch (err) { toast.error(err.message); } }}
             upload={(files) => upload(files)}
+            clientReview={{ enabled: !!t.clientVisible, request: async (f, status) => { try { await api.patch(`/tasks/attachments/${f.id}`, { clientReviewStatus: status }); toast.success(status === 'requested' ? 'Sent to the client for review' : 'Review request withdrawn'); load(); } catch (err) { toast.error(err.message); } } }}
             shareToggle={(f) => t.clientVisible && <button type="button" onClick={async () => { await api.patch(`/tasks/attachments/${f.id}`, { clientVisible: !f.clientVisible }); load(); }} className={clsx('chip border py-1', f.clientVisible ? 'border-cobalt/40 bg-cobalt/10 text-cobalt' : 'border-line text-muted')}>{f.clientVisible ? <><Globe size={11} />Client can review</> : <><Lock size={11} />Team only</>}</button>} />
         )}
 

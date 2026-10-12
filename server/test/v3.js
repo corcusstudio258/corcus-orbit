@@ -81,7 +81,7 @@ const tokenFrom = (link) => new URL(link).searchParams.get('token');
   const cc = await call(client, 'POST', `/portal/tasks/${kasTask.id}/comments`, cp);
   ok(cc.status === 201 && cc.data.pinX === 0.5 && cc.data.images.length === 1, 'client pins feedback with a reference image', cc.data);
   const fr = await call(client, 'POST', `/portal/files/${att2.id}/review`, { decision: 'approve' });
-  ok(fr.data.reviewStatus === 'approved', 'client approves a file');
+  ok(fr.data.clientReviewStatus === 'approved', 'client approves a file');
   const hidden = await call(client, 'POST', `/portal/files/${att.id}/review`, { decision: 'approve' });
   ok(hidden.status === 404, 'client cannot review team-only files');
 

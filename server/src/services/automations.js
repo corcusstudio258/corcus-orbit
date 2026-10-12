@@ -12,7 +12,13 @@ const TRIGGERS = {
   'task.priority': 'A task changes priority',
   'task.assigned': 'Someone is assigned to a task',
   'task.overdue': 'A task becomes overdue',
+  'task.due_soon': 'A task is due within 24 hours',
   'task.comment': 'Someone comments on a task',
+  'task.file': 'A file is uploaded to a task',
+  'task.approval': 'Someone approves or rejects a task',
+  'task.client_review': 'The client approves or asks for changes',
+  'task.client_comment': 'The client writes on a task',
+  'task.archived': 'A task is archived',
 };
 
 const ACTIONS = {
@@ -23,7 +29,16 @@ const ACTIONS = {
   assign: 'Assign someone',
   comment: 'Add a comment',
   points: 'Award reward points',
-  move_section: 'Move to a section',
+  move_section: 'Move to a pipeline stage',
+  email: 'Send an email',
+  notify_client: 'Notify the client in their portal',
+  add_tag: 'Add a tag',
+  add_watcher: 'Add a watcher',
+  set_due: 'Set the due date',
+  create_subtask: 'Create a subtask',
+  add_checklist: 'Add checklist items',
+  share_client: 'Share the task with the client',
+  archive: 'Archive the task',
 };
 
 function fill(template, ctx) {
@@ -41,6 +56,8 @@ function matches(rule, payload) {
   if (c.status && c.status !== (payload.to ?? t.status)) return false;
   if (c.fromStatus && c.fromStatus !== payload.from) return false;
   if (c.tag && !(t.tags || []).map((x) => x.toLowerCase()).includes(String(c.tag).toLowerCase())) return false;
+  if (c.decision && payload.decision && c.decision !== payload.decision) return false;
+  if (c.clientVisible !== undefined && c.clientVisible !== '' && Boolean(c.clientVisible) !== Boolean(t.clientVisible)) return false;
   return true;
 }
 
@@ -104,6 +121,58 @@ async function runAction(action, task, ctx, rule) {
       for (const id of ids) await award(id, Number(action.points) || 5, 'bonus', `Automation: ${rule.name}`, null);
       break;
     }
+    case 'email': {
+      const mailer = require('./mailer');
+      if (!(await mailer.ready())) break;
+      const ids = await recipients(action.to || 'assignees', task, action);
+      const to = (await User.findAll({ where: { id: ids }, attributes: ['email'], raw: true })).map((u) => u.email).filter(Boolean);
+      if (to.length) await mailer.send({ to, subject: fill(action.title || rule.name, ctx), html: await mailer.layout(fill(action.title || rule.name, ctx), `<p>${message.replace(/</g, '&lt;')}</p>`), text: message });
+      break;
+    }
+    case 'notify_client': {
+      if (!task.clientVisible || !task.projectId) break;
+      const p = await Project.findByPk(task.projectId, { attributes: ['clientId', 'clientVisible', 'id'] });
+      if (!p?.clientId || !p.clientVisible) break;
+      const portal = await User.findAll({ where: { clientId: p.clientId, isActive: true }, attributes: ['id'] });
+      await notify({ userIds: portal.map((u) => u.id), type: 'client_update', title: fill(action.title || '{{task.title}} has an update', ctx), body: message, link: `/portal/tasks/${task.id}` });
+      break;
+    }
+    case 'add_tag':
+      if (action.tag && !(task.tags || []).includes(action.tag)) { task.tags = [...(task.tags || []), String(action.tag).slice(0, 40)]; await task.save(); }
+      break;
+    case 'add_watcher':
+      if (action.userId) { const { TaskWatcher: TW } = require('../models'); await TW.findOrCreate({ where: { taskId: task.id, userId: Number(action.userId) } }); }
+      break;
+    case 'set_due': {
+      const d = new Date(); d.setDate(d.getDate() + (Number(action.days) || 0));
+      const [hh, mm] = String(action.time || '18:00').split(':').map(Number);
+      d.setHours(hh || 18, mm || 0, 0, 0);
+      task.dueDate = d; task.reminderSentAt = null; task.overdueNotifiedAt = null; await task.save();
+      break;
+    }
+    case 'create_subtask':
+      if (action.title) {
+        const { createTaskRecord } = require('./taskFactory');
+        const sub = await createTaskRecord({ title: fill(action.title, ctx), parentId: task.id, clientVisible: task.clientVisible }, rule.createdById);
+        const assignees = await task.getAssignees({ attributes: ['id'] });
+        if (assignees.length) await sub.setAssignees(assignees.map((a) => a.id));
+      }
+      break;
+    case 'add_checklist': {
+      const items = String(action.items || '').split(/\n|;/).map((x) => x.trim()).filter(Boolean).slice(0, 20);
+      if (items.length) {
+        const { ChecklistItem } = require('../models');
+        const n = await ChecklistItem.count({ where: { taskId: task.id } });
+        await ChecklistItem.bulkCreate(items.map((text, i) => ({ taskId: task.id, text: fill(text, ctx).slice(0, 250), position: n + i })));
+      }
+      break;
+    }
+    case 'share_client':
+      if (!task.clientVisible) { task.clientVisible = true; await task.save(); }
+      break;
+    case 'archive':
+      if (!task.archived) { task.archived = true; await task.save(); }
+      break;
     case 'move_section':
       if (task.projectId && action.sectionName) {
         const sec = await Section.findOne({ where: { projectId: task.projectId, name: action.sectionName } });
@@ -124,6 +193,7 @@ async function handle(trigger, payload) {
   const ctx = {
     task: { ...task.toJSON(), status: STATUS_LABEL[task.status] }, project: project?.toJSON() || { name: 'Personal' },
     actor: payload.actor || { name: 'Someone' }, from: STATUS_LABEL[payload.from] || payload.from || '', to: STATUS_LABEL[payload.to] || payload.to || '',
+    file: payload.file || {}, decision: payload.decision === 'approve' ? 'approved' : payload.decision === 'changes' ? 'asked for changes' : '', note: payload.note || '',
   };
   for (const rule of rules) {
     if (!matches(rule, { ...payload, task })) continue;
@@ -140,6 +210,40 @@ function register(on) {
   Object.keys(TRIGGERS).forEach((t) => on(t, (p) => handle(t, p)));
 }
 
+/** Ready-made rules people can add with one click. */
+const RECIPES = [
+  { key: 'review_lead', group: 'Reviews', name: 'Tell the project lead when work is ready for review', trigger: 'task.status', conditions: { status: 'review' },
+    actions: [{ type: 'notify', to: 'project_owner', title: 'Ready for review: {{task.key}}', message: '{{actor.name}} moved "{{task.title}}" to review.' }] },
+  { key: 'review_client', group: 'Reviews', name: 'Ask the client to review shared work', trigger: 'task.status', conditions: { status: 'review', clientVisible: true },
+    actions: [{ type: 'notify_client', title: 'Please review: {{task.title}}', message: 'New work is ready for your feedback in your portal.' }] },
+  { key: 'client_changes', group: 'Reviews', name: 'Alert the team when the client asks for changes', trigger: 'task.client_review', conditions: { decision: 'changes' },
+    actions: [{ type: 'notify', to: 'assignees', title: 'Client wants changes on {{task.key}}', message: '{{note}}' }, { type: 'set_priority', priority: 'high' }, { type: 'set_status', status: 'in_progress' }] },
+  { key: 'client_ok', group: 'Reviews', name: 'Celebrate when the client approves', trigger: 'task.client_review', conditions: { decision: 'approve' },
+    actions: [{ type: 'notify', to: 'assignees', title: 'Client approved {{task.key}} 🎉', message: '"{{task.title}}" is signed off.' }, { type: 'points', to: 'assignees', points: 10 }] },
+  { key: 'client_msg', group: 'Clients', name: 'WhatsApp the project lead when a client writes', trigger: 'task.client_comment', conditions: {},
+    actions: [{ type: 'whatsapp', to: 'project_owner', message: 'Client message on {{task.key}} {{task.title}}' }] },
+  { key: 'urgent_wa', group: 'Deadlines', name: 'WhatsApp assignees about urgent tasks', trigger: 'task.created', conditions: { priority: 'urgent' },
+    actions: [{ type: 'whatsapp', to: 'assignees', message: 'Urgent task for you: {{task.key}} {{task.title}} ({{project.name}})' }] },
+  { key: 'due_soon_wa', group: 'Deadlines', name: 'WhatsApp a reminder 24 hours before the deadline', trigger: 'task.due_soon', conditions: {},
+    actions: [{ type: 'whatsapp', to: 'assignees', message: 'Reminder: {{task.key}} {{task.title}} is due within 24 hours.' }] },
+  { key: 'overdue_high', group: 'Deadlines', name: 'Raise priority when a task goes overdue', trigger: 'task.overdue', conditions: {},
+    actions: [{ type: 'set_priority', priority: 'high' }, { type: 'notify', to: 'assignees', title: 'Overdue: {{task.key}}', message: '"{{task.title}}" is past its due date.' }] },
+  { key: 'blocked_lead', group: 'Deadlines', name: 'Tell the lead when something is blocked', trigger: 'task.status', conditions: { status: 'blocked' },
+    actions: [{ type: 'notify', to: 'project_owner', title: '{{task.key}} is blocked', message: '{{actor.name}} marked "{{task.title}}" as blocked.' }] },
+  { key: 'assign_due', group: 'Workflow', name: 'Give new tasks a 3-day deadline', trigger: 'task.created', conditions: {},
+    actions: [{ type: 'set_due', days: 3, time: '18:00' }] },
+  { key: 'reel_checklist', group: 'Workflow', name: 'Add a reel checklist to tasks tagged reel', trigger: 'task.created', conditions: { tag: 'reel' },
+    actions: [{ type: 'add_checklist', items: 'Script approved; Shoot done; First cut; Music licensed; Captions added; Client approval' }] },
+  { key: 'qa_subtask', group: 'Workflow', name: 'Create a QA step when work moves to review', trigger: 'task.status', conditions: { status: 'review' },
+    actions: [{ type: 'create_subtask', title: 'QA check for {{task.title}}' }] },
+  { key: 'file_review', group: 'Workflow', name: 'Move to review when a file is uploaded', trigger: 'task.file', conditions: { status: 'in_progress' },
+    actions: [{ type: 'set_status', status: 'review' }] },
+  { key: 'done_archive', group: 'Tidy up', name: 'Thank the team when a task is completed', trigger: 'task.status', conditions: { status: 'done' },
+    actions: [{ type: 'comment', message: 'Completed by {{actor.name}}. Nice work!' }, { type: 'points', to: 'assignees', points: 5 }] },
+  { key: 'share_done', group: 'Clients', name: 'Tell the client when shared work is completed', trigger: 'task.status', conditions: { status: 'done', clientVisible: true },
+    actions: [{ type: 'notify_client', title: '{{task.title}} is complete', message: 'Open your portal to see the final work.' }] },
+];
+
 const DEFAULT_RULES = [
   { name: 'Tell the manager when urgent work is created', trigger: 'task.created', conditions: { priority: 'urgent' },
     actions: [{ type: 'notify', to: 'managers', title: 'Urgent task: {{task.key}}', message: '{{actor.name}} created "{{task.title}}" in {{project.name}}' }] },
@@ -149,4 +253,4 @@ const DEFAULT_RULES = [
     actions: [{ type: 'points', to: 'assignees', points: 5 }] },
 ];
 
-module.exports = { register, handle, TRIGGERS, ACTIONS, DEFAULT_RULES, fill };
+module.exports = { register, handle, TRIGGERS, ACTIONS, DEFAULT_RULES, RECIPES, fill };

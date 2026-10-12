@@ -91,6 +91,8 @@ const Project = sequelize.define('Project', {
   currency: { type: DataTypes.STRING, defaultValue: 'INR' },
   healthOverride: DataTypes.STRING, // on_track | at_risk | off_track | null (auto)
   pipeline: json('pipeline', { review: true, done: true, archive: true }), // fixed end stages switched on/off
+  completedAt: DataTypes.DATE, // set when status becomes completed
+  reviewPurgedAt: DataTypes.DATE, // review files cleaned up after completion
 });
 
 const ProjectMember = sequelize.define('ProjectMember', {
@@ -155,7 +157,11 @@ const Attachment = sequelize.define('Attachment', {
   size: DataTypes.INTEGER,
   clientVisible: { type: DataTypes.BOOLEAN, defaultValue: false },
   forReview: { type: DataTypes.BOOLEAN, defaultValue: true }, // false for images pasted into comments
-  reviewStatus: { type: DataTypes.STRING, defaultValue: 'pending' }, // pending | approved | changes
+  reviewStatus: { type: DataTypes.STRING, defaultValue: 'pending' }, // team review: pending | approved | changes
+  clientReviewStatus: { type: DataTypes.STRING, defaultValue: 'none' }, // none | requested | approved | changes
+  clientReviewedAt: DataTypes.DATE,
+  originalSize: DataTypes.INTEGER, // bytes before compression
+  compression: { type: DataTypes.STRING, defaultValue: 'none' }, // none | pending | done | skipped | failed
 });
 
 const TimeLog = sequelize.define('TimeLog', {

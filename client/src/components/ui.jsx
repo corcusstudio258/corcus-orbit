@@ -365,6 +365,31 @@ export function ConfirmHost() {
 
 export function Kbd({ children }) { return <kbd className="kbd">{children}</kbd>; }
 
+/** Due date + time picker. value/onChange use ISO strings ('' when empty). */
+export function DueInput({ value, onChange, disabled, defaultTime = '18:00', compact }) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const d = value ? new Date(value) : null;
+  const date = d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : '';
+  const time = d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : '';
+  const emit = (nd, nt) => { if (!nd) { onChange(''); return; } onChange(new Date(`${nd}T${nt || defaultTime}:00`).toISOString()); };
+  const quick = (days) => { const x = new Date(); x.setDate(x.getDate() + days); emit(`${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`, time || defaultTime); };
+  return (
+    <div>
+      <div className="flex gap-1.5">
+        <input type="date" disabled={disabled} className={clsx('input min-w-0 flex-1', compact && '!py-1.5')} value={date} onChange={(e) => emit(e.target.value, time)} aria-label="Due date" />
+        <input type="time" disabled={disabled || !date} step={900} className={clsx('input !w-[118px] shrink-0', compact && '!py-1.5')} value={time} onChange={(e) => emit(date, e.target.value)} aria-label="Due time" />
+      </div>
+      {!compact && !disabled && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {[['Today', 0], ['Tomorrow', 1], ['In 3 days', 3], ['Next week', 7]].map(([l, n]) => <button key={l} type="button" onClick={() => quick(n)} className="rounded-md bg-sunken px-2 py-0.5 text-[11px] font-semibold text-muted hover:text-ink">{l}</button>)}
+          {['10:00', '13:00', '18:00'].map((t) => <button key={t} type="button" disabled={!date} onClick={() => emit(date, t)} className={clsx('rounded-md px-2 py-0.5 text-[11px] font-semibold disabled:opacity-40', time === t ? 'bg-ink text-surface' : 'bg-sunken text-muted hover:text-ink')}>{Number(t.slice(0, 2)) > 12 ? `${Number(t.slice(0, 2)) - 12} PM` : `${Number(t.slice(0, 2))} ${t.startsWith('12') ? 'PM' : 'AM'}`}</button>)}
+          {date && <button type="button" onClick={() => onChange('')} className="rounded-md px-2 py-0.5 text-[11px] font-semibold text-muted hover:text-ember">Clear</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Password field with a show/hide eye and an optional strength meter. */
 export function PasswordInput({ value, onChange, strength, className, ...rest }) {
   const [show, setShow] = useState(false);

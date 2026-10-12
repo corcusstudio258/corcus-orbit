@@ -29,6 +29,7 @@ router.get('/', async (req, res) => {
 
     // My tasks
     const myIds = new Set((await TaskAssignee.findAll({ where: { userId: me }, raw: true })).map((r) => r.taskId));
+    const mineAll = (await Task.findAll({ where: { id: [...myIds], archived: false }, attributes: ['id', 'status', 'dueDate'], raw: true }));
     const mineOpen = await Task.findAll({ where: { id: [...myIds], status: { [Op.ne]: 'done' }, archived: false }, include: listIncludes });
     const sortedMine = mineOpen.sort((a, b) => (a.dueDate ? new Date(a.dueDate) : Infinity) - (b.dueDate ? new Date(b.dueDate) : Infinity));
     const prioRank = { urgent: 0, high: 1, medium: 2, low: 3 };
@@ -107,11 +108,14 @@ router.get('/', async (req, res) => {
 
     res.json({
       scope: team ? 'team' : 'mine',
+      // Hero counts are the signed-in person's own tasks, so clicking one opens the same list in My tasks.
       hero: {
-        active: all.filter((t) => t.status === 'in_progress').length,
-        pending: all.filter((t) => ['todo', 'backlog'].includes(t.status)).length,
-        review: all.filter((t) => t.status === 'review').length,
-        completed: all.filter((t) => t.status === 'done').length,
+        active: mineAll.filter((t) => t.status === 'in_progress').length,
+        pending: mineAll.filter((t) => ['todo', 'backlog'].includes(t.status)).length,
+        review: mineAll.filter((t) => t.status === 'review').length,
+        completed: mineAll.filter((t) => t.status === 'done').length,
+        blocked: mineAll.filter((t) => t.status === 'blocked').length,
+        overdue: mineAll.filter((t) => t.status !== 'done' && t.dueDate && new Date(t.dueDate) < now).length,
         urgentMine: mineOpen.filter((t) => t.priority === 'urgent' || (t.dueDate && new Date(t.dueDate) < now)).length,
       },
       kpis: {

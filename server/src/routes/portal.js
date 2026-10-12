@@ -9,9 +9,11 @@ const { clientOnly } = require('../middleware/auth');
 const { projectProgress, taskProgressMap } = require('../services/progress');
 const { notify, activity } = require('../services/notify');
 const socket = require('../services/socket');
+const { emit } = require('../services/events');
 const path = require('path');
 const crypto = require('crypto');
 const multer = require('multer');
+const media = require('../services/media');
 const UPLOAD_DIR = path.resolve(__dirname, '../..', process.env.UPLOAD_DIR || './uploads');
 const imageUpload = multer({
   storage: multer.diskStorage({ destination: UPLOAD_DIR, filename: (q, f, cb) => cb(null, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${path.extname(f.originalname).toLowerCase()}`) }),
@@ -51,7 +53,7 @@ router.get('/overview', wrap(async (req, res) => {
   const feed = await Activity.findAll({ where: { projectId: ids, clientVisible: true }, order: [['createdAt', 'DESC']], limit: 20,
     include: [{ model: User, as: 'actor', attributes: ['id', 'name', 'color'] }, { model: Project, attributes: ['id', 'name', 'color'] }] });
   const clientJson = client.toJSON(); delete clientJson.secrets;
-  const reviewFiles = visible.length ? await Attachment.findAll({ where: { taskId: visible.map((t) => t.id), clientVisible: true, commentId: null, reviewStatus: 'pending' }, order: [['createdAt', 'DESC']], limit: 12 }) : [];
+  const reviewFiles = visible.length ? await Attachment.findAll({ where: { taskId: visible.map((t) => t.id), clientVisible: true, commentId: null, clientReviewStatus: ['requested', 'none'] }, order: [['createdAt', 'DESC']], limit: 12 }) : [];
   res.json({
     client: clientJson,
     reviewFiles: reviewFiles.map((f) => { const t = visible.find((x) => x.id === f.taskId); return { id: f.id, name: f.originalName, mime: f.mime, createdAt: f.createdAt, task: { id: t.id, key: t.key, title: t.title }, project: t.Project }; }),
@@ -114,7 +116,7 @@ router.get('/tasks/:id', wrap(async (req, res) => {
   const files = await Attachment.findAll({ where: { taskId: t.id, clientVisible: true, commentId: null } });
   res.json({ ...clean(t, pm), project: { id: t.Project.id, name: t.Project.name, color: t.Project.color },
     subtasks: subs.map((s) => clean(s, pm)), comments,
-    files: files.map((f) => ({ id: f.id, name: f.originalName, originalName: f.originalName, size: f.size, mime: f.mime, createdAt: f.createdAt, reviewStatus: f.reviewStatus, forReview: f.forReview })) });
+    files: files.map((f) => ({ id: f.id, name: f.originalName, originalName: f.originalName, size: f.size, mime: f.mime, createdAt: f.createdAt, reviewStatus: f.clientReviewStatus === 'requested' || f.clientReviewStatus === 'none' ? 'pending' : f.clientReviewStatus, clientReviewStatus: f.clientReviewStatus, forReview: f.forReview })) });
 }));
 
 router.post('/tasks/:id/comments', imageUpload.array('images', 6), wrap(async (req, res) => {
@@ -131,8 +133,9 @@ router.post('/tasks/:id/comments', imageUpload.array('images', 6), wrap(async (r
   const n = (v) => (v === undefined || v === '' || v === null ? null : Number(v));
   const c = await Comment.create({ taskId: t.id, userId: req.user.id, body, internal: false, kind: target ? 'review' : 'comment', attachmentId: target?.id || null,
     pinX: n(req.body.pinX), pinY: n(req.body.pinY), pinTime: n(req.body.pinTime) });
-  if (files.length) await Attachment.bulkCreate(files.map((f) => ({ taskId: t.id, commentId: c.id, userId: req.user.id, originalName: f.originalname, fileName: f.filename, mime: f.mimetype, size: f.size, clientVisible: true, forReview: false })));
-  if (target && target.reviewStatus !== 'changes') { target.reviewStatus = 'changes'; await target.save(); }
+  if (files.length) await media.compressAll(await Attachment.bulkCreate(files.map((f) => ({ taskId: t.id, commentId: c.id, userId: req.user.id, originalName: f.originalname, fileName: f.filename, mime: f.mimetype, size: f.size, clientVisible: true, forReview: false }))), UPLOAD_DIR);
+  if (target && target.clientReviewStatus !== 'changes') { target.clientReviewStatus = 'changes'; target.clientReviewedAt = new Date(); await target.save(); }
+  emit('task.client_comment', { task: t, actor: { id: req.user.id, name: req.user.name } });
   await notify({ userIds: [...t.assignees.map((a) => a.id), t.createdById, t.Project.ownerId], type: 'task_comment',
     title: `Client message on ${t.key}`, body: `${req.user.name}: ${body.slice(0, 200)}`, link: `/tasks/${t.id}` });
   await activity({ actorId: req.user.id, action: 'client.comment', summary: `left a message on ${t.key}`, taskId: t.id, projectId: t.projectId, clientVisible: true });
@@ -146,14 +149,15 @@ router.post('/files/:aid/review', wrap(async (req, res) => {
   const t = a && a.clientVisible ? await visibleTask(req, a.taskId) : null;
   if (!t) return res.status(404).json({ error: 'File not found.' });
   const approve = req.body.decision === 'approve';
-  a.reviewStatus = approve ? 'approved' : 'changes'; await a.save();
+  a.clientReviewStatus = approve ? 'approved' : 'changes'; a.clientReviewedAt = new Date(); await a.save();
   const note = String(req.body.note || '').trim();
   if (note || !approve) await Comment.create({ taskId: t.id, userId: req.user.id, internal: false, kind: 'review', attachmentId: a.id, body: note || 'Changes requested on this file.' });
   await notify({ userIds: [...t.assignees.map((x) => x.id), t.createdById, t.Project.ownerId], type: 'approval_result',
     title: approve ? `Client approved ${a.originalName}` : `Client wants changes to ${a.originalName}`, body: note || `${t.key} ${t.title}`, link: `/tasks/${t.id}?tab=review` });
   await activity({ actorId: req.user.id, action: approve ? 'client.file_approved' : 'client.file_changes', summary: `${approve ? 'approved' : 'asked for changes on'} ${a.originalName} (${t.key})`, taskId: t.id, projectId: t.projectId, clientVisible: true });
   socket.toStaff('task:changed', { id: t.id, projectId: t.projectId });
-  res.json({ ok: true, reviewStatus: a.reviewStatus });
+  emit('task.client_review', { task: t, decision: approve ? 'approve' : 'changes', note, file: { name: a.originalName }, actor: { id: req.user.id, name: req.user.name } });
+  res.json({ ok: true, clientReviewStatus: a.clientReviewStatus });
 }));
 
 // Client signs off a deliverable (task in review) or asks for changes.
@@ -173,6 +177,7 @@ router.post('/tasks/:id/review', wrap(async (req, res) => {
     title: approve ? `Client approved ${t.key}` : `Client requested changes on ${t.key}`, body: note || t.title, link: `/tasks/${t.id}` });
   await activity({ actorId: req.user.id, action: approve ? 'client.approved' : 'client.changes',
     summary: approve ? `approved ${t.key} "${t.title}"` : `requested changes on ${t.key} "${t.title}"`, taskId: t.id, projectId: t.projectId, clientVisible: true });
+  emit('task.client_review', { task: t, decision: approve ? 'approve' : 'changes', note, actor: { id: req.user.id, name: req.user.name } });
   socket.toStaff('task:changed', { id: t.id, projectId: t.projectId });
   res.json({ ok: true, status: t.status });
 }));

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { HEALTH } from '../lib/format';
 
@@ -82,10 +83,10 @@ export default function OrbitHero({ user, hero, projects, summary }) {
   const h = now.getHours();
   const greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   const chips = [
-    { label: 'In progress', value: hero.active, color: '#7086FF' },
-    { label: 'To do', value: hero.pending, color: '#FFC21A' },
-    { label: 'In review', value: hero.review, color: '#A78BFA' },
-    { label: 'Done', value: hero.completed, color: '#34C78C' },
+    { label: 'In progress', value: hero.active, color: '#7086FF', to: '/my-tasks?tab=assigned&status=in_progress' },
+    { label: 'To do', value: hero.pending, color: '#FFC21A', to: '/my-tasks?tab=assigned&status=backlog,todo' },
+    { label: 'In review', value: hero.review, color: '#A78BFA', to: '/my-tasks?tab=assigned&status=review' },
+    { label: 'Done', value: hero.completed, color: '#34C78C', to: '/my-tasks?tab=assigned&status=done' },
   ];
   return (
     <section className="relative overflow-hidden rounded-[22px] bg-night text-white">
@@ -97,10 +98,10 @@ export default function OrbitHero({ user, hero, projects, summary }) {
           <p className="mt-3 max-w-md text-[15px] text-white/75">{summary}</p>
           <div className="mt-6 grid max-w-lg grid-cols-2 gap-2 sm:grid-cols-4">
             {chips.map((c) => (
-              <div key={c.label} className="rounded-2xl border border-night-line bg-night-2/70 px-3 py-2.5">
+              <Link key={c.label} to={c.to} title={`Open your ${c.label.toLowerCase()} tasks`} className="group rounded-2xl border border-night-line bg-night-2/70 px-3 py-2.5 transition hover:-translate-y-0.5 hover:border-white/30 hover:bg-night-2">
                 <div className="font-display text-2xl font-semibold leading-none" style={{ color: c.color }}>{c.value}</div>
-                <div className="mt-1 text-[11px] text-white/60">{c.label}</div>
-              </div>
+                <div className="mt-1 flex items-center gap-1 text-[11px] text-white/60 group-hover:text-white/90">{c.label}<ChevronRight size={11} className="opacity-0 transition group-hover:opacity-100" /></div>
+              </Link>
             ))}
           </div>
         </div>

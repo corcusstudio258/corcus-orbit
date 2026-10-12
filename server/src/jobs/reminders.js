@@ -17,6 +17,7 @@ async function dueSoon() {
     await notify({ userIds: t.assignees.map((a) => a.id), type: 'task_due', title: `Due soon: ${t.key}`,
       body: `${t.title} — due ${fmt(t.dueDate)}`, link: `/tasks/${t.id}` });
     t.reminderSentAt = now; await t.save();
+    emit('task.due_soon', { task: t, actor: { name: 'Orbit' } });
   }
   return tasks.length;
 }
@@ -49,6 +50,8 @@ function start() {
   // Overdue nudges once a day at 10:05, during working hours
   cron.schedule('5 10 * * *', () => overdue().catch((e) => console.error('[reminders] overdue', e.message)), { timezone: tz });
   // Meeting reminders, 15 minutes before
+  // Clear review data of projects completed more than N days ago (Settings → Company)
+  cron.schedule('30 3 * * *', () => require('../services/retention').purgeExpired().catch((e) => console.error('[retention]', e.message)), { timezone: tz });
   cron.schedule('*/5 * * * *', () => require('../routes/meetings').sendReminders().catch((e) => console.error('[reminders] meetings', e.message)), { timezone: tz });
 }
 

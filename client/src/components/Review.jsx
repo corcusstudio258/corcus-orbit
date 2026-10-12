@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
-import { ImagePlus, Send, X, Check, CheckCircle2, RotateCcw, MessageSquarePlus, FileText, Film, Image as ImageIcon, Globe, Upload, ExternalLink, MousePointerClick, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ImagePlus, Send, X, Check, CheckCircle2, RotateCcw, MessageSquarePlus, FileText, Film, Image as ImageIcon, Globe, Upload, ExternalLink, MousePointerClick, ChevronLeft, ChevronRight, UserCheck, Hourglass, Sparkles } from 'lucide-react';
 import { fileUrl } from '../lib/api';
 import { Avatar, Spinner, Segmented } from './ui';
-import { ago } from '../lib/format';
+import { ago, bytes } from '../lib/format';
 
 const isImage = (f) => /^image\//.test(f?.mime || '');
 const isVideo = (f) => /^video\//.test(f?.mime || '');
@@ -15,6 +15,30 @@ const REVIEW = {
   approved: { label: 'Approved', cls: 'bg-leaf/10 text-leaf' },
   changes: { label: 'Changes requested', cls: 'bg-amber/15 text-amber' },
 };
+const CLIENT = {
+  requested: { label: 'Client is reviewing', cls: 'bg-cobalt/10 text-cobalt', Icon: Hourglass },
+  approved: { label: 'Client approved', cls: 'bg-leaf/10 text-leaf', Icon: UserCheck },
+  changes: { label: 'Client asked for changes', cls: 'bg-amber/15 text-amber', Icon: RotateCcw },
+};
+
+/** Staff-side strip: the client's verdict on a file and the button to ask for one. */
+function ClientReviewBar({ file, clientReview }) {
+  const [busy, setBusy] = useState(false);
+  const st = CLIENT[file.clientReviewStatus];
+  const run = async (status) => { setBusy(true); try { await clientReview.request(file, status); } finally { setBusy(false); } };
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-sunken/40 px-3 py-2 text-xs">
+      <span className="font-semibold text-muted">Client review</span>
+      {st ? <span className={clsx('chip', st.cls)}><st.Icon size={11} />{st.label}{file.clientReviewedAt && file.clientReviewStatus !== 'requested' ? ` · ${ago(file.clientReviewedAt)}` : ''}</span>
+        : <span className="text-faint">Not asked yet</span>}
+      <div className="ml-auto flex gap-2">
+        {!clientReview.enabled ? <span className="text-faint">Share the task with the client to ask for their review.</span>
+          : file.clientReviewStatus === 'requested' ? <button type="button" className="btn-ghost btn-sm" disabled={busy} onClick={() => run('none')}>Withdraw</button>
+            : <button type="button" className="btn-ink btn-sm" disabled={busy} onClick={() => run('requested')}>{busy ? <Spinner size={12} /> : <UserCheck size={13} />}{st ? 'Ask client again' : 'Ask client to review'}</button>}
+      </div>
+    </div>
+  );
+}
 
 // ---------- lightbox ----------
 export function Lightbox({ images, index, onClose }) {
@@ -176,7 +200,7 @@ export function CommentThread({ comments, onPost, canShare, emptyText, people, c
  * setStatus(file, status, note) / resolve(c, bool): optional actions
  * upload(files): optional, staff only
  */
-export function ReviewBoard({ files, comments, post, setStatus, resolve, upload, isClient, shareToggle }) {
+export function ReviewBoard({ files, comments, post, setStatus, resolve, upload, isClient, shareToggle, clientReview }) {
   const reviewable = files.filter((f) => isImage(f) || isVideo(f) || /pdf/.test(f.mime || ''));
   const [sel, setSel] = useState(reviewable[0]?.id || null);
   const [draft, setDraft] = useState(null); // { x, y, t }
@@ -231,6 +255,7 @@ export function ReviewBoard({ files, comments, post, setStatus, resolve, upload,
             {isImage(f) ? <img src={fileUrl(f.id)} alt="" className="h-full w-full object-cover" loading="lazy" /> : isVideo(f) ? <Film size={20} className="text-muted" /> : <FileText size={20} className="text-muted" />}
             {openCount(f.id) > 0 && <span className="absolute right-1 top-1 grid h-5 min-w-[20px] place-items-center rounded-full bg-amber px-1 text-[10px] font-bold text-white">{openCount(f.id)}</span>}
             {f.reviewStatus === 'approved' && <span className="absolute bottom-1 right-1 rounded-full bg-leaf p-0.5 text-white"><Check size={10} strokeWidth={3} /></span>}
+            {!isClient && CLIENT[f.clientReviewStatus] && <span className={clsx('absolute bottom-1 left-1 rounded-full p-0.5', f.clientReviewStatus === 'approved' ? 'bg-leaf text-white' : f.clientReviewStatus === 'changes' ? 'bg-amber text-white' : 'bg-cobalt text-white')} title={CLIENT[f.clientReviewStatus].label}><UserCheck size={10} /></span>}
           </button>
         ))}
         {upload && <><button type="button" onClick={() => upRef.current?.click()} className="grid h-16 w-16 shrink-0 place-items-center rounded-xl border-2 border-dashed border-line text-muted hover:border-faint hover:text-ink" aria-label="Upload more"><Upload size={18} /></button><input ref={upRef} type="file" multiple hidden accept="image/*,video/*,application/pdf" onChange={(e) => { upload(e.target.files); e.target.value = ''; }} /></>}
@@ -245,6 +270,9 @@ export function ReviewBoard({ files, comments, post, setStatus, resolve, upload,
               {shareToggle?.(file)}
               <a href={fileUrl(file.id)} target="_blank" rel="noreferrer" className="btn-ghost btn-sm"><ExternalLink size={13} />Open</a>
             </div>
+            {!isClient && clientReview && <ClientReviewBar file={file} clientReview={clientReview} />}
+            {file.compression === 'pending' && <p className="inline-flex items-center gap-1.5 text-xs text-muted"><Spinner size={11} />Optimising this video to save space. It stays playable meanwhile.</p>}
+            {file.compression === 'done' && file.originalSize > 0 && <p className="inline-flex items-center gap-1.5 text-xs text-muted"><Sparkles size={12} className="text-leaf" />Compressed {bytes(file.originalSize)} → {bytes(file.size)} ({Math.round((1 - file.size / file.originalSize) * 100)}% smaller)</p>}
             <div className="relative overflow-hidden rounded-2xl border border-line bg-[repeating-conic-gradient(rgb(var(--c-sunken))_0_25%,rgb(var(--c-surface))_0_50%)] bg-[length:20px_20px]">
               {isImage(file) && (
                 <div className="relative mx-auto w-fit cursor-crosshair" onClick={placePin}>

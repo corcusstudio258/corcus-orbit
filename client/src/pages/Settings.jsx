@@ -50,9 +50,9 @@ function Profile() {
 }
 
 function Company({ company, onSaved }) {
-  const [f, setF] = useState({ graceMinutes: 15, dailyCapacity: 7, currency: 'INR', workStart: '10:00', ...company });
+  const [f, setF] = useState({ graceMinutes: 15, dailyCapacity: 7, currency: 'INR', workStart: '10:00', reviewRetentionDays: 30, ...company });
   const set = (k) => (e) => setF((s) => ({ ...s, [k]: e.target.value }));
-  const save = async () => { try { await api.patch('/settings/company', { ...f, graceMinutes: Number(f.graceMinutes), dailyCapacity: Number(f.dailyCapacity) }); toast.success('Company saved'); onSaved(); } catch (e) { toast.error(e.message); } };
+  const save = async () => { try { await api.patch('/settings/company', { ...f, graceMinutes: Number(f.graceMinutes), dailyCapacity: Number(f.dailyCapacity), reviewRetentionDays: Number(f.reviewRetentionDays) }); toast.success('Company saved'); onSaved(); } catch (e) { toast.error(e.message); } };
   return (
     <section className="panel max-w-2xl space-y-4 p-5">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -62,6 +62,7 @@ function Company({ company, onSaved }) {
         <Field label="Grace period (minutes)"><input type="number" min={0} className="input" value={f.graceMinutes} onChange={set('graceMinutes')} /></Field>
         <Field label="Working hours per person per day" hint="Used by the workload view"><input type="number" min={1} max={14} className="input" value={f.dailyCapacity} onChange={set('dailyCapacity')} /></Field>
         <Field label="Default currency"><select className="input" value={f.currency} onChange={set('currency')}>{['INR', 'USD', 'EUR', 'GBP', 'AED'].map((c) => <option key={c}>{c}</option>)}</select></Field>
+        <Field label="Delete review data after a project is completed" hint="Review files, pinned feedback and comment images are removed this many days after completion. 0 keeps them forever."><div className="flex items-center gap-2"><input type="number" min={0} max={3650} className="input w-28" value={f.reviewRetentionDays} onChange={set('reviewRetentionDays')} /><span className="text-sm text-muted">days</span></div></Field>
       </div>
       <button type="button" className="btn-primary" onClick={save}>Save company</button>
     </section>

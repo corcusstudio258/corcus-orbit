@@ -88,6 +88,7 @@ export default function Dashboard() {
   if (loading || !data) return <PageLoader />;
   const { personal: me, kpis, focus } = data;
   const team = data.scope === 'team';
+  const listUrl = (q) => `${team ? '/board' : '/my-tasks'}?${team ? '' : 'tab=assigned&'}${q}`;
   const summary = me.overdue ? `${me.overdue} of your tasks ${me.overdue === 1 ? 'is' : 'are'} overdue and ${me.dueToday} due today.` : me.dueToday ? `${me.dueToday} ${me.dueToday === 1 ? 'task is' : 'tasks are'} due today. Nothing overdue.` : 'Nothing overdue. A clear runway today.';
 
   return (
@@ -96,9 +97,9 @@ export default function Dashboard() {
 
       <section className="panel grid grid-cols-2 divide-line overflow-hidden lg:grid-cols-4 lg:divide-x [&>*]:border-line max-lg:[&>*:nth-child(odd)]:border-r max-lg:[&>*:nth-child(-n+2)]:border-b">
         <Stat icon={FolderKanban} tone="#3D5AFE" label="Active projects" value={kpis.activeProjects} hint={`${kpis.totalProjects} in flight, ${kpis.newProjects} new this month`} onClick={() => nav('/projects')} />
-        <Stat icon={ListTodo} tone="#8B5CF6" label={team ? 'Total tasks' : 'Tasks you can see'} value={kpis.totalTasks} hint={`${kpis.inProgress} in progress`} onClick={() => nav('/my-tasks')} />
-        <Stat icon={Gauge} tone="#1FA971" label="Completion rate" value={`${kpis.completionRate}%`} hint={`${kpis.done} done`} />
-        <Stat icon={AlarmClock} tone="#E5484D" label="Overdue" value={kpis.overdue} hint={kpis.overdueUrgent ? `${kpis.overdueUrgent} urgent` : 'needs attention'} onClick={() => nav('/my-tasks?due=overdue')} />
+        <Stat icon={ListTodo} tone="#8B5CF6" label={team ? 'Total tasks' : 'Tasks you can see'} value={kpis.totalTasks} hint={`${kpis.inProgress} in progress`} onClick={() => nav(team ? '/board' : '/my-tasks?tab=assigned')} />
+        <Stat icon={Gauge} tone="#1FA971" label="Completion rate" value={`${kpis.completionRate}%`} hint={`${kpis.done} done`} onClick={() => nav(listUrl('status=done&showDone=1'))} />
+        <Stat icon={AlarmClock} tone="#E5484D" label="Overdue" value={kpis.overdue} hint={kpis.overdueUrgent ? `${kpis.overdueUrgent} urgent` : 'needs attention'} onClick={() => nav(listUrl('due=overdue'))} />
       </section>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
@@ -106,7 +107,7 @@ export default function Dashboard() {
           action={data.velocityFlag && <span className={clsx('chip', data.velocityFlag.startsWith('Adding') ? 'bg-ember/10 text-ember' : 'bg-leaf/10 text-leaf')}>{data.velocityFlag.startsWith('Adding') ? 'Backlog growing' : 'Backlog shrinking'}</span>}>
           <VelocityChart data={data.velocity} />
         </Panel>
-        <Panel title="Status mix" action={<Link to="/my-tasks" className="link text-xs">View tasks</Link>}><StatusDonut data={data.statusMix} /></Panel>
+        <Panel title="Status mix" action={<Link to="/my-tasks" className="link text-xs">View tasks</Link>}><StatusDonut data={data.statusMix} onSelect={(st) => nav(listUrl(`status=${st}`))} /></Panel>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
@@ -200,7 +201,7 @@ export default function Dashboard() {
             </div>
           </Panel>
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-            <Panel title="Priority split" subtitle="Open work"><PriorityBars data={data.prioritySplit} /></Panel>
+            <Panel title="Priority split" subtitle="Open work"><PriorityBars data={data.prioritySplit} onSelect={(pr) => nav(listUrl(`priority=${pr}`))} /></Panel>
             <Panel title="Burndown" subtitle="Open tasks over 14 days"><BurndownChart data={data.burndown} height={170} /></Panel>
           </div>
         </div>

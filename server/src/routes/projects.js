@@ -10,6 +10,7 @@ const { notify, activity } = require('../services/notify');
 const { computeHealth } = require('../services/health');
 const { applyStructure } = require('../services/structure');
 const socket = require('../services/socket');
+const retention = require('../services/retention');
 
 router.use(staffOnly);
 
@@ -121,6 +122,7 @@ router.get('/:id', wrap(async (req, res) => {
     alerts: health.alerts, activeSprint, docCount,
     priorities: ['urgent', 'high', 'medium', 'low'].map((k) => ({ priority: k, count: tasks.filter((t) => t.priority === k && t.status !== 'done').length })),
     canManage: await canManage(req, p),
+    reviewPurgeOn: await retention.purgeDate(p), reviewPurgedAt: p.reviewPurgedAt,
   });
 }));
 
@@ -186,6 +188,10 @@ router.patch('/:id', wrap(async (req, res) => {
     'budget', 'spent', 'currency', 'healthOverride'].forEach((k) => {
     if (b[k] !== undefined) p[k] = b[k] === '' ? null : b[k];
   });
+  if (b.status && b.status !== prevStatus) {
+    if (b.status === 'completed') { p.completedAt = new Date(); p.reviewPurgedAt = null; }
+    else if (prevStatus === 'completed') p.completedAt = null;
+  }
   if (b.pipeline && typeof b.pipeline === 'object') p.pipeline = { review: b.pipeline.review !== false, done: b.pipeline.done !== false, archive: b.pipeline.archive !== false };
   await p.save();
   if (b.memberIds) {
@@ -200,6 +206,46 @@ router.patch('/:id', wrap(async (req, res) => {
   }
   socket.toStaff('project:changed', { id: p.id });
   res.json(p);
+}));
+
+// Permanently delete a project and everything in it.
+// Delete review data now instead of waiting for the retention window.
+router.post('/:id/purge-review', requirePerm('projects.manage'), wrap(async (req, res) => {
+  const p = await Project.findByPk(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Project not found.' });
+  if (p.status !== 'completed') return res.status(400).json({ error: 'Only completed projects can have their review data cleared.' });
+  const r = await retention.purgeProject(p);
+  await activity({ actorId: req.user.id, action: 'project.review_purged', summary: `cleared review data on ${p.name} (${r.files} files)`, projectId: p.id });
+  res.json(r);
+}));
+
+router.delete('/:id', requirePerm('projects.manage'), wrap(async (req, res) => {
+  const p = await Project.findByPk(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Project not found.' });
+  if (String(req.body?.confirm || req.query.confirm || '').trim().toLowerCase() !== p.name.trim().toLowerCase()) return res.status(400).json({ error: 'Type the project name to confirm.' });
+  const { sequelize: sq, ChecklistItem, Comment, Attachment, TaskAssignee, TaskWatcher, Meeting, Channel, ClientRequest } = require('../models');
+  const fs = require('fs'); const path = require('path');
+  const dir = path.resolve(__dirname, '../..', process.env.UPLOAD_DIR || './uploads');
+  const ids = (await Task.findAll({ where: { projectId: p.id }, attributes: ['id'], raw: true })).map((t) => t.id);
+  const files = ids.length ? await Attachment.findAll({ where: { taskId: ids }, attributes: ['fileName'], raw: true }) : [];
+  await sq.transaction(async (tx) => {
+    if (ids.length) {
+      for (const M of [ChecklistItem, Comment, Attachment, TimeLog, TaskAssignee, TaskWatcher]) await M.destroy({ where: { taskId: ids }, transaction: tx });
+      await TaskDependency.destroy({ where: { [Op.or]: [{ taskId: ids }, { blockerId: ids }] }, transaction: tx });
+      await Activity.update({ taskId: null }, { where: { taskId: ids }, transaction: tx });
+      await ClientRequest.update({ taskId: null }, { where: { taskId: ids }, transaction: tx });
+      await Task.update({ parentId: null }, { where: { id: ids }, transaction: tx });
+      await Task.destroy({ where: { id: ids }, transaction: tx });
+    }
+    for (const M of [Section, Sprint, Milestone, ProjectMember]) await M.destroy({ where: { projectId: p.id }, transaction: tx });
+    for (const M of [Document, Meeting, Channel, ClientRequest, Activity]) await M.update({ projectId: null }, { where: { projectId: p.id }, transaction: tx });
+    await p.destroy({ transaction: tx });
+  });
+  files.forEach((f) => fs.promises.unlink(path.join(dir, f.fileName)).catch(() => {}));
+  await activity({ actorId: req.user.id, action: 'project.deleted', summary: `deleted project ${p.name} and its ${ids.length} tasks` });
+  socket.toStaff('project:changed', { id: p.id, deleted: true });
+  socket.toStaff('task:changed', { projectId: p.id, kind: 'deleted' });
+  res.json({ ok: true, tasks: ids.length });
 }));
 
 // Apply a template or an AI plan into an existing project

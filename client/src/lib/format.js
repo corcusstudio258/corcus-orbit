@@ -35,13 +35,12 @@ export const PALETTE = ['#3D5AFE', '#8B5CF6', '#1FA971', '#F08C00', '#E5484D', '
 export function dueLabel(date, done) {
   if (!date) return null;
   const d = new Date(date);
-  const hasTime = d.getHours() !== 18 && (d.getHours() !== 0 || d.getMinutes() !== 0);
-  const time = hasTime ? `, ${format(d, 'h:mm a')}` : '';
+  const time = `, ${format(d, d.getMinutes() ? 'h:mm a' : 'h a')}`;
   let text;
   if (isToday(d)) text = `Today${time}`;
   else if (isTomorrow(d)) text = `Tomorrow${time}`;
-  else if (isYesterday(d)) text = 'Yesterday';
-  else text = format(d, Math.abs(differenceInCalendarDays(d, new Date())) > 180 ? 'd MMM yyyy' : 'd MMM');
+  else if (isYesterday(d)) text = `Yesterday${time}`;
+  else text = format(d, Math.abs(differenceInCalendarDays(d, new Date())) > 180 ? 'd MMM yyyy' : 'd MMM') + time;
   const overdue = !done && isPast(d);
   const soon = !done && !overdue && differenceInCalendarDays(d, new Date()) <= 1;
   return { text, overdue, soon };

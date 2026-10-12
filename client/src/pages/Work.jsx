@@ -20,7 +20,7 @@ export function Board() {
   return (
     <div>
       <PageHeader title="Board" subtitle="Every task you can see, across projects. Drag cards to change status." actions={<button type="button" className="btn-primary" onClick={() => compose()}><Plus size={16} />New task</button>} />
-      <TaskExplorer storageKey="board" defaultView="board" defaultGroup="status" />
+      <TaskExplorer syncUrl storageKey="board" defaultView="board" defaultGroup="status" />
     </div>
   );
 }
