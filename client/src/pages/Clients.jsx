@@ -68,13 +68,26 @@ export default function Clients() {
   );
 }
 
+const makePassword = () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const a = new Uint32Array(10); crypto.getRandomValues(a);
+  return `${[...a].map((n) => chars[n % chars.length]).join('')}@${10 + (a[0] % 90)}`;
+};
+const shareText = (company, email, password) => `Your ${company || 'Orbit'} client portal login\nLink: ${window.location.origin}\nEmail: ${email}\nPassword: ${password}\nPlease keep this private.`;
+
 function PortalLogin({ client, onSaved }) {
+  const { company } = useAuth();
+  const [reset, setReset] = useState(null);
+  const copy = (email, password) => { navigator.clipboard?.writeText(shareText(company?.name, email, password)); toast.success('Login details copied. Paste them into WhatsApp.'); };
+  const doReset = async () => {
+    try { await api.patch(`/clients/${client.id}/portal-users/${reset.user.id}`, { password: reset.password }); copy(reset.user.email, reset.password); setReset(null); } catch (err) { toast.error(err.message); }
+  };
   const [open, setOpen] = useState(false);
-  const [f, setF] = useState({ name: '', email: '', password: '', phone: '' });
+  const [f, setF] = useState({ name: '', email: '', password: makePassword(), phone: '' });
   const set = (k) => (e) => setF((s) => ({ ...s, [k]: e.target.value }));
   const save = async (e) => {
     e.preventDefault();
-    try { await api.post(`/clients/${client.id}/portal-users`, f); toast.success('Portal login created. Share the email and password with your client.'); setOpen(false); setF({ name: '', email: '', password: '', phone: '' }); onSaved(); } catch (err) { toast.error(err.message); }
+    try { await api.post(`/clients/${client.id}/portal-users`, f); copy(f.email, f.password); setOpen(false); setF({ name: '', email: '', password: makePassword(), phone: '' }); onSaved(); } catch (err) { toast.error(err.message); }
   };
   const toggle = async (u) => { await api.patch(`/clients/${client.id}/portal-users/${u.id}`, { isActive: !u.isActive }); onSaved(); };
   return (
@@ -85,6 +98,7 @@ function PortalLogin({ client, onSaved }) {
           <li key={u.id} className="flex items-center gap-3 py-2.5 text-sm">
             <Avatar user={{ ...u, color: client.color }} size={28} />
             <div className="min-w-0 flex-1"><div className="truncate font-medium">{u.name}</div><div className="truncate text-xs text-muted">{u.email}{u.lastSeenAt ? `, seen ${ago(u.lastSeenAt)}` : ', never signed in'}</div></div>
+            <button type="button" onClick={() => setReset({ user: u, password: makePassword() })} className="btn-ghost btn-sm">Reset password</button>
             <button type="button" onClick={() => toggle(u)} className={`btn-sm ${u.isActive ? 'btn-ghost' : 'btn-danger'}`}>{u.isActive ? 'Active' : 'Disabled'}</button>
           </li>
         ))}
@@ -96,8 +110,12 @@ function PortalLogin({ client, onSaved }) {
           <Field label="Name"><input className="input" required value={f.name} onChange={set('name')} /></Field>
           <Field label="Email"><input type="email" className="input" required value={f.email} onChange={set('email')} /></Field>
           <Field label="WhatsApp" hint="Gets progress updates and approvals on WhatsApp"><input className="input" value={f.phone} onChange={set('phone')} /></Field>
-          <Field label="Password" hint="At least 8 characters"><input className="input" required minLength={8} value={f.password} onChange={set('password')} /></Field>
+          <Field label="Password" hint="At least 8 characters. Details are copied for you when you save."><div className="flex gap-2"><input className="input font-mono" required minLength={8} value={f.password} onChange={set('password')} /><button type="button" className="btn-ghost shrink-0" onClick={() => setF((s) => ({ ...s, password: makePassword() }))}>Generate</button></div></Field>
         </form>
+      </Modal>
+      <Modal open={!!reset} onClose={() => setReset(null)} title={`New password for ${reset?.user.name}`} width="max-w-md"
+        footer={<><button type="button" className="btn-ghost" onClick={() => setReset(null)}>Cancel</button><button type="button" className="btn-primary" onClick={doReset}>Save and copy</button></>}>
+        {reset && <Field label="Password" hint="Their old password stops working right away."><div className="flex gap-2"><input className="input font-mono" value={reset.password} onChange={(e) => setReset({ ...reset, password: e.target.value })} /><button type="button" className="btn-ghost shrink-0" onClick={() => setReset({ ...reset, password: makePassword() })}>Generate</button></div></Field>}
       </Modal>
     </section>
   );

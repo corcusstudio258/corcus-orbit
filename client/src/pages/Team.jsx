@@ -35,7 +35,7 @@ function PersonForm({ open, onClose, person, roles, people, onSaved }) {
         <Field label="Full name"><input className="input" required value={f.name} onChange={set('name')} /></Field>
         <Field label="Email"><input type="email" className="input" required value={f.email} onChange={set('email')} /></Field>
         <Field label="WhatsApp number" hint="Task alerts go here. Include country code."><input className="input" value={f.phone || ''} onChange={set('phone')} placeholder="91 98765 43210" /></Field>
-        <Field label={person ? 'New password' : 'Password'} hint={person ? 'Leave blank to keep the current one' : 'At least 8 characters'}><input className="input" required={!person} minLength={8} value={f.password} onChange={set('password')} /></Field>
+        <Field label={person ? 'New password' : 'Password'} hint={person ? 'Leave blank to keep the current one' : 'At least 8 characters'}><div className="flex gap-2"><input className="input font-mono" required={!person} minLength={8} value={f.password} onChange={set('password')} /><button type="button" className="btn-ghost shrink-0" onClick={() => { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'; const a = new Uint32Array(10); crypto.getRandomValues(a); setF((s) => ({ ...s, password: `${[...a].map((n) => c[n % c.length]).join('')}@${10 + (a[0] % 90)}` })); }}>Generate</button></div></Field>
         <Field label="Role">
           <select className="input" required value={f.roleId} onChange={set('roleId')}>
             <option value="">Pick a role</option>{assignable.map((r) => <option key={r.id} value={r.id}>{r.name} (level {r.level})</option>)}
