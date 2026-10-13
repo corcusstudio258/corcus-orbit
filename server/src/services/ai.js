@@ -4,6 +4,11 @@ const settings = require('./settings');
 const BASE = () => (process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, '');
 const FALLBACK_MODELS = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-2.5-flash'];
 let workingModel = null;
+const missing = new Set();          // models this key can't use (404): skipped until restart
+const busyUntil = new Map();        // model -> time it was overloaded; skipped for a few minutes
+const BUSY_MS = 3 * 60 * 1000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const isBusy = (res) => [500, 503, 529].includes(res.status) || /high demand|overloaded|unavailable|try again later/i.test(res.data?.error?.message || '');
 
 class AiError extends Error {
   constructor(message, status = 503, code = 'ai_error') { super(message); this.status = status; this.code = code; }
@@ -73,12 +78,18 @@ async function generate({ system, prompt, history = [], schema, temperature = 0.
     generationConfig: { temperature, maxOutputTokens: maxTokens, ...(schema ? { responseMimeType: 'application/json', responseSchema: schema } : {}) },
     ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
   };
-  const models = [...new Set([workingModel, cfg.model, ...FALLBACK_MODELS].filter(Boolean))];
+  const now = Date.now();
+  const all = [...new Set([cfg.model, workingModel, ...FALLBACK_MODELS].filter(Boolean))].filter((m) => !missing.has(m));
+  const fresh = all.filter((m) => !(now - (busyUntil.get(m) || 0) < BUSY_MS));
+  const models = fresh.length ? [...fresh, ...all.filter((m) => !fresh.includes(m))] : all;
   let last = null;
+  let busyCount = 0;
   for (const model of models) {
-    const res = await call(model, cfg.apiKey, body);
+    let res = await call(model, cfg.apiKey, body);
+    if (!res.ok && isBusy(res)) { await sleep(1200); res = await call(model, cfg.apiKey, body); } // one quick retry
     if (res.ok) {
       workingModel = model;
+      busyUntil.delete(model);
       const text = extractText(res.data);
       if (!text) {
         const reason = res.data?.promptFeedback?.blockReason || res.data?.candidates?.[0]?.finishReason;
@@ -88,9 +99,12 @@ async function generate({ system, prompt, history = [], schema, temperature = 0.
     }
     last = res;
     const msg = res.data?.error?.message || '';
-    if (res.status === 404 || /not found|not supported|is not available|no longer available/i.test(msg)) continue; // try the next model
+    if (res.status === 404 || /not found|not supported|is not available|no longer available/i.test(msg)) { missing.add(model); continue; }
+    if (isBusy(res)) { busyUntil.set(model, Date.now()); busyCount += 1; continue; } // overloaded: use the next model
+    if (res.status === 429) continue; // quota is per model, so another one may still have room
     break;
   }
+  if (busyCount && isBusy(last)) throw new AiError('Gemini is very busy right now (all models). Please try again in a minute.', 503, 'busy');
   const msg = last?.data?.error?.message || `Gemini returned ${last?.status}`;
   if (last?.status === 429) throw new AiError('Gemini rate limit reached. Wait a minute and try again, or upgrade the API plan.', 429, 'rate_limit');
   if (last?.status === 400 && /api key/i.test(msg)) throw new AiError('The Gemini API key was rejected. Check it in Settings → AI.', 400, 'bad_key');
@@ -100,7 +114,7 @@ async function generate({ system, prompt, history = [], schema, temperature = 0.
 
 async function status() {
   const cfg = await config();
-  return { enabled: cfg.enabled, ready: cfg.ready, provider: 'gemini', model: workingModel || cfg.model };
+  return { enabled: cfg.enabled, ready: cfg.ready, provider: 'gemini', model: workingModel || cfg.model, busy: [...busyUntil.entries()].filter(([, t]) => Date.now() - t < BUSY_MS).map(([m]) => m) };
 }
 
 module.exports = { generate, status, config, S, AiError };

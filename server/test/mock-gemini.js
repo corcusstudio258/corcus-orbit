@@ -25,6 +25,7 @@ http.createServer((req, res) => {
     if (!m) { res.writeHead(404); return res.end('{}'); }
     if (req.headers['x-goog-api-key'] !== 'test-key') { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: { message: 'API key not valid' } })); }
     if (m[1].includes('missing')) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: { message: 'model not found' } })); }
+    if (m[1].includes('busy')) { res.writeHead(503, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: { code: 503, message: 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', status: 'UNAVAILABLE' } })); }
     const parsed = JSON.parse(body || '{}');
     const schema = parsed.generationConfig?.responseSchema;
     const out = schema ? JSON.stringify(fake(schema)) : '# Weekly summary\n\nAll good.';
