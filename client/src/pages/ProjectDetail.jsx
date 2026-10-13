@@ -4,10 +4,10 @@ import toast from 'react-hot-toast';
 import clsx from 'clsx';
 import { startOfMonth, format } from 'date-fns';
 import {
-  ArrowLeft, LayoutDashboard, List, Columns3, CalendarRange, CalendarDays, Zap, FileText, History, Plus, Pencil, MoreHorizontal,
+  ArrowLeft, LayoutDashboard, List, Columns3, CalendarRange, CalendarDays, Zap, FileText, FileSpreadsheet, History, Plus, Pencil, MoreHorizontal,
   LayoutTemplate, Flag, Check, Trash2, Play, CircleCheckBig, Sparkles, Clock, Wallet, Users, AlertTriangle, Diamond,
 } from 'lucide-react';
-import api, { download } from '../lib/api';
+import api from '../lib/api';
 import useFetch from '../lib/useFetch';
 import { useAuth, useLive } from '../context/AuthContext';
 import { refreshProjects } from '../lib/directory';
@@ -22,6 +22,7 @@ import MonthCalendar from '../components/MonthCalendar';
 import { useAskAi, useComposer, useOpenTask } from '../components/Layout';
 import { ActivityFeed } from './Dashboard';
 import { ProjectForm } from './Projects';
+import { ProjectBulkTasks } from '../components/BulkTasks';
 import { STATUS, money, fmtDate, minutes, ago, toDateInput } from '../lib/format';
 
 const SEV = { critical: '#E5484D', warning: '#C76A00', info: '#3D5AFE' };
@@ -303,6 +304,7 @@ export default function ProjectDetail() {
   const [edit, setEdit] = useState(false);
   const [tplOpen, setTplOpen] = useState(false);
   const [saveTpl, setSaveTpl] = useState(null);
+  const [bulk, setBulk] = useState(false);
   useLive(['project:changed', 'task:changed'], (d) => { if (!d?.id || d.id === Number(id) || d.projectId === Number(id)) reload(); }, [id]);
 
   if (error && !p?.id) return <div className="panel"><Empty icon={AlertTriangle} title="Can't open this project" body={error} action={<Link to="/projects" className="btn-ghost">Back to projects</Link>} /></div>;
@@ -340,13 +342,14 @@ export default function ProjectDetail() {
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn-ai" onClick={() => ask(`Give me a status update on ${p.name}: what's done, what's at risk, and what should happen this week.`, { projectId: p.id })}><Sparkles size={15} />Ask about it</button>
+            <button type="button" className="btn-ghost" onClick={() => setBulk(true)} title="Bulk import and export tasks"><FileSpreadsheet size={15} />Import / Export</button>
             {can('tasks.create') && <button type="button" className="btn-primary" onClick={() => compose({ projectId: p.id })}><Plus size={16} />Task</button>}
             {p.canManage && (
               <Menu trigger={<span className="btn-ghost"><MoreHorizontal size={16} /></span>} items={[
                 { label: 'Edit project', icon: Pencil, onClick: () => setEdit(true) },
                 { label: 'Add tasks from a template', icon: LayoutTemplate, onClick: () => setTplOpen(true) },
                 { label: 'Save as template', icon: Diamond, onClick: () => setSaveTpl({ name: `${p.name} template`, description: '' }) },
-                { label: 'Export tasks (CSV)', icon: FileText, onClick: () => download(`/tools/export/tasks.csv?projectId=${p.id}`, `${p.code}-tasks.csv`).catch((e) => toast.error(e.message)) },
+                { label: 'Bulk import / export', icon: FileSpreadsheet, onClick: () => setBulk(true) },
                 { label: 'Archive project', icon: Trash2, danger: true, onClick: archive },
               ]} />
             )}
@@ -376,6 +379,7 @@ export default function ProjectDetail() {
       {tab === 'activity' && <div className="panel p-5">{p.activity.length ? <ActivityFeed items={p.activity} /> : <Empty icon={History} title="No activity yet" />}</div>}
 
       <ProjectForm open={edit} onClose={() => setEdit(false)} project={p} onSaved={() => { setEdit(false); reload(); refreshProjects(); }} />
+      <ProjectBulkTasks open={bulk} onClose={() => setBulk(false)} project={p} onDone={reload} />
       <ApplyTemplate open={tplOpen} onClose={() => setTplOpen(false)} project={p} onDone={reload} />
       <Modal open={!!saveTpl} onClose={() => setSaveTpl(null)} title="Save as template" subtitle="Sections, milestones and the task tree are copied. Dates become offsets from the start."
         footer={<><button type="button" className="btn-ghost" onClick={() => setSaveTpl(null)}>Cancel</button><button type="button" className="btn-primary" onClick={async () => { try { await api.post('/tools/templates', { ...saveTpl, fromProjectId: p.id }); toast.success('Template saved'); setSaveTpl(null); } catch (err) { toast.error(err.message); } }}>Save template</button></>}>

@@ -10,6 +10,7 @@ import { useDirectory, useProjects, useAiStatus } from '../lib/directory';
 import { PageHeader, Panel, Modal, Field, Toggle, Empty, PageLoader, Spinner, confirm, Segmented } from '../components/ui';
 import { STATUS, STATUS_ORDER, PRIORITY, PRIORITY_ORDER, ago } from '../lib/format';
 import { ProjectForm } from './Projects';
+import { parseCsv, FIELDS, FIELD_LABEL, guessAll } from '../components/BulkTasks';
 
 // ---------------- Automations ----------------
 const TO = { assignees: 'Assignees', creator: 'Whoever created it', managers: "Assignees' managers", project_owner: 'Project lead', watchers: 'Watchers', user: 'A specific person', phone: 'A phone number' };
@@ -357,23 +358,6 @@ export function Templates() {
 }
 
 // ---------------- Import / export ----------------
-function parseCsv(text) {
-  const rows = []; let row = []; let cell = ''; let q = false;
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i];
-    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i += 1; } else q = false; } else cell += ch; } else if (ch === '"') q = true;
-    else if (ch === ',') { row.push(cell); cell = ''; } else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i += 1; row.push(cell); rows.push(row); row = []; cell = ''; } else cell += ch;
-  }
-  if (cell || row.length) { row.push(cell); rows.push(row); }
-  return rows.filter((r) => r.some((c) => c.trim()));
-}
-const FIELDS = ['title', 'description', 'status', 'priority', 'due', 'start', 'assignee', 'section', 'tags', 'estimate', 'parent'];
-const guess = (h) => {
-  const s = h.toLowerCase().replace(/[^a-z]/g, '');
-  const map = { title: ['title', 'task', 'name', 'taskname', 'summary'], description: ['description', 'details', 'notes'], status: ['status', 'state'], priority: ['priority'], due: ['due', 'duedate', 'deadline', 'enddate'], start: ['start', 'startdate'], assignee: ['assignee', 'assignees', 'owner', 'assignedto'], section: ['section', 'group', 'list', 'column'], tags: ['tags', 'labels'], estimate: ['estimate', 'hours', 'estimatehours'], parent: ['parent', 'parenttask'] };
-  return Object.keys(map).find((k) => map[k].includes(s)) || '';
-};
-
 export function ImportExport() {
   const { can } = useAuth();
   const projects = useProjects();
@@ -388,14 +372,14 @@ export function ImportExport() {
     const f = e.target.files?.[0]; if (!f) return;
     const rows = parseCsv((await f.text()).replace(/^﻿/, ''));
     if (rows.length < 2) { toast.error('That file has no data rows.'); return; }
-    setCsv({ name: f.name, head: rows[0], rows: rows.slice(1) }); setMapping(rows[0].map(guess)); setResult(null);
+    setCsv({ name: f.name, head: rows[0], rows: rows.slice(1) }); setMapping(guessAll(rows[0])); setResult(null);
     e.target.value = '';
   };
   const run = async () => {
     if (!mapping.includes('title')) { toast.error('Map one column to Title.'); return; }
     setBusy(true);
     const rows = csv.rows.map((r) => Object.fromEntries(mapping.map((k, i) => [k, r[i]]).filter(([k]) => k)));
-    try { const r = await api.post('/tools/import/tasks', { projectId: projectId || null, rows }); setResult(r.data); toast.success(`Imported ${r.data.created} tasks`); } catch (err) { toast.error(err.message); } finally { setBusy(false); }
+    try { const r = await api.post('/tools/import/tasks', { projectId: projectId || null, rows }); setResult(r.data); toast.success(`Imported ${r.data.created} tasks${r.data.updated ? `, updated ${r.data.updated}` : ''}`); } catch (err) { toast.error(err.message); } finally { setBusy(false); }
   };
   const dl = (url, name) => download(url, name).catch((e) => toast.error(e.message));
   const stamp = new Date().toISOString().slice(0, 10);
@@ -409,7 +393,7 @@ export function ImportExport() {
             <label className="grid cursor-pointer place-items-center rounded-2xl border-2 border-dashed border-line px-6 py-14 text-center transition hover:border-muted hover:bg-sunken/40">
               <FileSpreadsheet size={28} className="text-muted" />
               <p className="mt-3 font-semibold">Choose a .csv file</p>
-              <p className="mt-1 max-w-sm text-sm text-muted">First row is the header. Columns we understand: title, description, status, priority, due, start, assignee (name or email), section, tags, estimate, parent.</p>
+              <p className="mt-1 max-w-sm text-sm text-muted">First row is the header. Columns we understand: title, description, stage, status, priority, start date, due date, due time, assignee (name or email), tags, estimate, parent. Each project page also has its own sample file.</p>
               <input type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} />
             </label>
           ) : (
@@ -421,7 +405,7 @@ export function ImportExport() {
                   <thead className="bg-sunken/60"><tr>{csv.head.map((h, i) => (
                     <th key={i} className="min-w-[140px] p-2 text-left align-top">
                       <div className="mb-1 truncate text-xs font-semibold text-muted">{h || `Column ${i + 1}`}</div>
-                      <select className="input !py-1 text-xs" value={mapping[i]} onChange={(e) => setMapping((m) => m.map((x, j) => (j === i ? e.target.value : x)))}><option value="">Skip</option>{FIELDS.map((f) => <option key={f} value={f}>{f}</option>)}</select>
+                      <select className="input !py-1 text-xs" value={mapping[i]} onChange={(e) => setMapping((m) => m.map((x, j) => (j === i ? e.target.value : x)))}><option value="">Skip</option>{FIELDS.map((f) => <option key={f} value={f}>{FIELD_LABEL[f]}</option>)}</select>
                     </th>
                   ))}</tr></thead>
                   <tbody>{csv.rows.slice(0, 5).map((r, i) => <tr key={i} className="border-t border-line">{csv.head.map((_, j) => <td key={j} className={clsx('max-w-[200px] truncate p-2', !mapping[j] && 'text-faint')}>{r[j]}</td>)}</tr>)}</tbody>
