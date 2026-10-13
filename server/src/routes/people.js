@@ -1,7 +1,8 @@
 // People: attendance (punch in/out), workload and rewards.
 const router = require('express').Router();
 const { Op } = require('sequelize');
-const { Attendance, User, Role, Task, TaskAssignee } = require('../models');
+const { Attendance, User, Role, Task, TaskAssignee, PointEntry } = require('../models');
+const { teamIds } = require('../services/access');
 const { staffOnly, requirePerm } = require('../middleware/auth');
 const settings = require('../services/settings');
 const points = require('../services/points');
@@ -118,7 +119,9 @@ router.get('/workload', wrap(async (req, res) => {
     if (d.getDay() !== 0) dates.push(new Date(d)); // skip Sundays
   }
   const staff = await User.findAll({ where: { isActive: true }, include: [{ model: Role, attributes: ['name', 'isClientRole'] }], attributes: ['id', 'name', 'color', 'designation', 'department'] });
-  const people = staff.filter((u) => !u.Role?.isClientRole);
+  // Whole team for managers; otherwise yourself and (with tasks.view_team) the people who report to you.
+  const allowed = req.can('dashboard.team') || req.can('users.manage') ? null : await teamIds(req);
+  const people = staff.filter((u) => !u.Role?.isClientRole && (!allowed || allowed.includes(u.id)));
   const rows = await TaskAssignee.findAll({ where: { userId: people.map((p) => p.id) }, raw: true });
   const tasks = await Task.findAll({ where: { id: rows.map((r) => r.taskId), status: { [Op.ne]: 'done' }, archived: false }, attributes: ['id', 'key', 'title', 'startDate', 'dueDate', 'estimateHours', 'priority', 'status'], raw: true });
   const capacity = Number((await settings.get('company')).dailyCapacity || 7);
@@ -143,19 +146,35 @@ router.get('/workload', wrap(async (req, res) => {
 }));
 
 // ---------- rewards ----------
+// Everyone sees their own points and rank. Full leaderboard numbers and other people's history need
+// rewards.view_all (or tasks.view_team for people who report to you).
+const canSeePoints = async (req, userId) => userId === req.user.id || req.can('rewards.view_all') || (await teamIds(req)).includes(userId);
+
 router.get('/rewards/me', wrap(async (req, res) => {
   const userId = req.query.userId ? Number(req.query.userId) : req.user.id;
+  if (!(await canSeePoints(req, userId))) return res.status(403).json({ error: "You can only see your own points." });
   const s = await points.summary(userId);
   const board = await points.leaderboard('month');
-  res.json({ ...s, rank: board.findIndex((b) => b.user.id === userId) + 1 || null, catalog: points.BADGES });
+  res.json({ ...s, rank: board.findIndex((b) => b.user.id === userId) + 1 || null, of: board.length, catalog: points.BADGES });
 }));
-router.get('/rewards/leaderboard', wrap(async (req, res) => res.json(await points.leaderboard(req.query.period || 'month'))));
+router.get('/rewards/leaderboard', wrap(async (req, res) => {
+  const board = await points.leaderboard(req.query.period || 'month');
+  if (req.can('rewards.view_all')) return res.json(board);
+  const team = await teamIds(req);
+  // Names and ranks stay visible for motivation; points only for yourself and your team.
+  res.json(board.map((b, i) => (team.includes(b.user.id) ? { ...b, rank: i + 1 } : { user: b.user, rank: i + 1, points: null, badges: b.badges, hidden: true })));
+}));
 router.post('/rewards/kudos', wrap(async (req, res) => {
   const { userId, points: pts = 10, reason } = req.body;
   if (!userId || Number(userId) === req.user.id) return res.status(400).json({ error: 'Pick a teammate to appreciate.' });
   if (!reason?.trim()) return res.status(400).json({ error: 'Say what they did well.' });
-  const max = req.can('dashboard.team') ? 100 : 10;
-  const n = Math.max(1, Math.min(max, Number(pts) || 10));
+  const manager = req.can('rewards.manage');
+  if (!manager) {
+    const since = new Date(); since.setHours(0, 0, 0, 0);
+    const given = await PointEntry.count({ where: { kind: 'kudos', reason: { [Op.like]: `Kudos from ${req.user.name}:%` }, createdAt: { [Op.gte]: since } } });
+    if (given >= 3) return res.status(429).json({ error: 'You can give kudos 3 times a day. Try again tomorrow.' });
+  }
+  const n = Math.max(1, Math.min(manager ? 100 : 10, Number(pts) || 10));
   await points.award(Number(userId), n, 'kudos', `Kudos from ${req.user.name}: ${reason.slice(0, 140)}`, null);
   await notify({ userIds: [Number(userId)], type: 'kudos', title: `🎉 ${req.user.name} gave you +${n} points`, body: reason.slice(0, 200), link: '/rewards' });
   res.json({ ok: true, points: n });

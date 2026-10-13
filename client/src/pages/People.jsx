@@ -210,7 +210,7 @@ export function Attendance() {
 
 // ---------------- Rewards ----------------
 export function Rewards() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const people = useDirectory();
   const [period, setPeriod] = useState('month');
   const { data: me, reload } = useFetch('/people/rewards/me');
@@ -280,7 +280,7 @@ export function Rewards() {
                     <Avatar user={podium[i].user} size={i === 0 ? 52 : 40} ring />
                     <p className="mt-1 max-w-[80px] truncate text-xs font-semibold">{podium[i].user.name.split(' ')[0]}</p>
                     <div className={clsx('mt-1 grid w-20 place-items-center rounded-t-xl font-display font-semibold', i === 0 ? 'h-20 bg-brand text-brand-ink' : i === 1 ? 'h-14 bg-sunken' : 'h-10 bg-sunken')}>
-                      <span className="text-lg">{podium[i].points}</span>
+                      <span className="text-lg">{podium[i].points ?? `#${i + 1}`}</span>
                     </div>
                   </div>
                 ))}
@@ -291,7 +291,7 @@ export function Rewards() {
                     <span className="w-6 text-center font-display text-sm font-semibold text-muted">{i + 1}</span>
                     <Avatar user={b.user} size={28} />
                     <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{b.user.name}</span><span className="block truncate text-[11px] text-muted">{b.badges} badges</span></span>
-                    <span className="font-display font-semibold">{b.points}</span>
+                    {b.points == null ? <span className="text-xs text-faint" title="Only managers see everyone's points">Hidden</span> : <span className="font-display font-semibold">{b.points}</span>}
                   </li>
                 ))}
               </ol>
@@ -305,8 +305,8 @@ export function Rewards() {
         {kudos && (
           <div className="space-y-4">
             <Field label="Who"><select className="input" value={kudos.userId} onChange={(e) => setKudos({ ...kudos, userId: Number(e.target.value) })}><option value="">Pick a teammate</option>{people.filter((p) => p.id !== user.id).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
-            <Field label="Points"><Segmented value={kudos.points} onChange={(v) => setKudos({ ...kudos, points: v })} options={[5, 10, 25, 50].map((n) => ({ value: n, label: `+${n}` }))} /></Field>
-            <Field label="For what" hint="Managers can give up to 100, everyone else up to 10."><textarea className="input" rows={3} value={kudos.reason} onChange={(e) => setKudos({ ...kudos, reason: e.target.value })} placeholder="Stayed late to fix the Diwali reel export" /></Field>
+            <Field label="Points"><Segmented value={kudos.points} onChange={(v) => setKudos({ ...kudos, points: v })} options={(can('rewards.manage') ? [5, 10, 25, 50, 100] : [5, 10]).map((n) => ({ value: n, label: `+${n}` }))} /></Field>
+            <Field label="For what" hint={can('rewards.manage') ? 'You can give up to 100 points.' : 'Up to 10 points, 3 kudos a day.'}><textarea className="input" rows={3} value={kudos.reason} onChange={(e) => setKudos({ ...kudos, reason: e.target.value })} placeholder="Stayed late to fix the Diwali reel export" /></Field>
           </div>
         )}
       </Modal>

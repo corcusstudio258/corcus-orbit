@@ -3,7 +3,7 @@
 // (running `alter` on every boot makes MySQL pile up duplicate indexes).
 const { sequelize, Setting } = require('../models');
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 /** One-off data changes that go with a schema version. */
 const DATA_STEPS = {
@@ -41,6 +41,18 @@ DATA_STEPS[4] = async () => {
   for (const p of await Project.findAll({ where: { status: 'completed' } })) { if (!p.completedAt) { p.completedAt = p.updatedAt; await p.save(); } }
   // Client approvals made before v4 were stored as the file's review status.
   await Attachment.update({ clientReviewStatus: 'requested' }, { where: { clientVisible: true, commentId: null } });
+};
+
+// Clearer team visibility and points permissions.
+DATA_STEPS[5] = async () => {
+  const { Role } = require('../models');
+  for (const r of await Role.findAll()) {
+    if (r.isClientRole) continue;
+    const perms = new Set(r.permissions || []);
+    if (['manager', 'team-lead'].includes(r.slug) || perms.has('dashboard.team')) perms.add('tasks.view_team');
+    if (r.slug === 'manager' || perms.has('users.manage')) { perms.add('rewards.view_all'); perms.add('rewards.manage'); }
+    r.permissions = [...perms]; await r.save();
+  }
 };
 
 async function migrate() {
