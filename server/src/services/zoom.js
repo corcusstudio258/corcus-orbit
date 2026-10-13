@@ -10,24 +10,26 @@ async function ready() {
   return !!(c.enabled && c.accountId && c.clientId && c.clientSecret);
 }
 
-async function getToken() {
+async function getToken({ fresh = false } = {}) {
   const c = await settings.get('zoom');
   if (!c.accountId || !c.clientId || !c.clientSecret) { const e = new Error('Add the Zoom Account ID, Client ID and Client secret in Settings.'); e.status = 400; throw e; }
   const sig = `${c.accountId}:${c.clientId}`;
-  if (token && token.sig === sig && token.exp > Date.now() + 60e3) return token.value;
+  if (!fresh && token && token.sig === sig && token.exp > Date.now() + 60e3) return token.value;
   const r = await fetch(`${OAUTH()}?grant_type=account_credentials&account_id=${encodeURIComponent(c.accountId)}`, {
     method: 'POST', headers: { Authorization: `Basic ${Buffer.from(`${c.clientId}:${c.clientSecret}`).toString('base64')}` },
   });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(`Zoom sign-in failed: ${data.reason || data.error || r.status}`); e.status = 400; throw e; }
-  token = { sig, value: data.access_token, exp: Date.now() + (data.expires_in || 3600) * 1000 };
+  token = { sig, value: data.access_token, scope: String(data.scope || ''), exp: Date.now() + (data.expires_in || 3600) * 1000 };
   return token.value;
 }
 
-async function api(method, path, body) {
-  const r = await fetch(`${API()}${path}`, { method, headers: { Authorization: `Bearer ${await getToken()}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+async function api(method, path, body, retried = false) {
+  const r = await fetch(`${API()}${path}`, { method, headers: { Authorization: `Bearer ${await getToken({ fresh: retried })}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   if (r.status === 204) return null;
   const data = await r.json().catch(() => ({}));
+  // Scopes added after a token was issued only show up in a new token.
+  if (!r.ok && !retried && /scope/i.test(data.message || '')) return api(method, path, body, true);
   if (!r.ok) { const e = new Error(`Zoom: ${data.message || r.status}`); e.status = 400; throw e; }
   return data;
 }
@@ -41,6 +43,15 @@ const shape = (m) => ({
 async function create(m) { const d = await api('POST', '/users/me/meetings', shape(m)); return { id: String(d.id), joinUrl: d.join_url, password: d.password || '' }; }
 async function update(zoomId, m) { await api('PATCH', `/meetings/${zoomId}`, shape(m)); }
 async function remove(zoomId) { try { await api('DELETE', `/meetings/${zoomId}`); } catch (e) { /* already gone */ } }
-async function test() { const me = await api('GET', '/users/me'); return { account: me.email || me.id }; }
+/** Checks the credentials and that the app can create meetings. Needs no user-read scope. */
+async function test() {
+  await getToken({ fresh: true });
+  const scopes = token.scope.split(/\s+/).filter(Boolean);
+  const need = ['meeting:write:meeting:admin', 'meeting:write:meeting', 'meeting:write:admin', 'meeting:write'];
+  if (scopes.length && !scopes.some((x) => need.includes(x))) { const e = new Error('Zoom: add the scope meeting:write:meeting:admin to the app, then test again.'); e.status = 400; throw e; }
+  let account = 'connected';
+  try { const me = await api('GET', '/users/me'); account = me.email || me.id; } catch { /* user:read scope is optional */ }
+  return { account, scopes };
+}
 
 module.exports = { ready, create, update, remove, test };
