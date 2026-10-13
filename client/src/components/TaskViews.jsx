@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
-import { ChevronRight, GitBranch, MessageSquare, Paperclip, ListChecks, Plus, ShieldCheck, Eye, Ban, Repeat, X, Archive } from 'lucide-react';
+import { ChevronRight, GitBranch, MessageSquare, Paperclip, ListChecks, Plus, ShieldCheck, Eye, Ban, Repeat, X, Archive, AlertTriangle, Clock } from 'lucide-react';
 import api from '../lib/api';
 import { STATUS, STATUS_ORDER, BOARD_STATUSES, PRIORITY, PRIORITY_ORDER } from '../lib/format';
 import { AvatarStack, Avatar, DueBadge, PriorityFlag, StatusPill, Bar, Spinner, UserPicker } from './ui';
@@ -13,6 +13,53 @@ import { changeStatus } from './TaskPanel';
 import { celebrate, pointOf } from './Celebrate';
 
 export { changeStatus };
+
+// ---------- urgency: overdue, due today / tomorrow, waiting for review ----------
+const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+export function urgencyOf(t) {
+  if (!t || t.status === 'done' || t.archived) return {};
+  const out = {};
+  if (t.status === 'review') out.review = true;
+  if (t.dueDate) {
+    const d = new Date(t.dueDate); const now = new Date();
+    const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
+    if (d < now) out.overdue = Math.max(1, Math.round((now - d) / 864e5));
+    else if (sameDay(d, now)) out.today = d;
+    else if (sameDay(d, tomorrow)) out.tomorrow = d;
+  }
+  return out;
+}
+const URGENCY_STYLE = {
+  overdue: { border: 'border-l-ember', tint: 'bg-ember/[0.06]' },
+  review: { border: 'border-l-violet', tint: 'bg-violet/[0.06]' },
+  today: { border: 'border-l-amber', tint: 'bg-amber/[0.08]' },
+  tomorrow: { border: 'border-l-amber/50', tint: '' },
+};
+const topUrgency = (u) => ['overdue', 'review', 'today', 'tomorrow'].find((k) => u[k]);
+/** Classes for a row/card: a coloured left edge plus a soft tint. Use with border-l-4. */
+export function urgencyRow(t, { tint = true } = {}) {
+  const k = topUrgency(urgencyOf(t));
+  if (!k) return 'border-l-transparent';
+  return clsx(URGENCY_STYLE[k].border, tint && URGENCY_STYLE[k].tint);
+}
+const timeOf = (d) => d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+/** Solid chips that stand out: Overdue 2d, Due today 6 PM, In review / Your review. */
+export function UrgencyTag({ task: t, className }) {
+  const { user } = useAuth();
+  const u = urgencyOf(t);
+  const mine = u.review && t.approvalStatus === 'pending' && (t.reviewers || []).some((r) => r.id === user?.id);
+  if (!topUrgency(u)) return null;
+  return (
+    <span className={clsx('inline-flex flex-wrap items-center gap-1', className)}>
+      {u.overdue && <span className="inline-flex items-center gap-1 rounded-md bg-ember px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white"><AlertTriangle size={10} />Overdue {u.overdue}d</span>}
+      {u.today && <span className="inline-flex items-center gap-1 rounded-md bg-amber px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white"><Clock size={10} />Due today {timeOf(u.today)}</span>}
+      {u.tomorrow && <span className="inline-flex items-center gap-1 rounded-md bg-amber/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber">Due tomorrow</span>}
+      {u.review && <span className={clsx('inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide', mine ? 'bg-violet text-white' : 'bg-violet/15 text-violet')}>
+        <span className="relative flex h-1.5 w-1.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-60" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-current" /></span>
+        {mine ? 'Your review' : 'In review'}</span>}
+    </span>
+  );
+}
 
 function useOpen() {
   const [params, setParams] = useSearchParams();
@@ -44,7 +91,8 @@ export function TaskCard({ t, onDragStart, onDropBefore, showProject = true }) {
       onDragLeave={() => setOver(false)}
       onDrop={onDropBefore ? (e) => { e.stopPropagation(); setOver(false); onDropBefore(e); } : undefined}
       onClick={() => open(t.id)} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && open(t.id)}
-      className={clsx('group cursor-pointer rounded-xl border bg-surface p-3 transition hover:shadow-lift', over ? 'border-cobalt border-t-4' : 'border-line hover:border-faint')}>
+      className={clsx('group cursor-pointer rounded-xl border border-l-4 bg-surface p-3 transition hover:shadow-lift', over ? 'border-cobalt border-t-4' : 'border-line hover:border-faint', urgencyRow(t))}>
+      <UrgencyTag task={t} className="mb-1.5" />
       <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-faint">
         {showProject && t.Project && <span className="h-2 w-2 rounded-full" style={{ background: t.Project.color }} />}
         <span>{t.key}</span>
@@ -180,8 +228,8 @@ function Row({ t, level = 0, onChanged, showProject, selected, onSelect }) {
   const setStatus = async (e) => { try { const u = await changeStatus(t, e.target.value, pointOf(e)); onChanged?.(u); } catch (err) { toast.error(err.message); } };
   return (
     <>
-      <tr className={clsx('group border-b border-line/70 transition hover:bg-sunken/50', selected && 'bg-brand-soft/40')}>
-        <td className="w-8 py-2 pl-3">{onSelect && level === 0 && <input type="checkbox" className="h-4 w-4 accent-[#0F1535]" checked={!!selected} onChange={() => onSelect(t.id)} aria-label={`Select ${t.key}`} />}</td>
+      <tr className={clsx('group border-b border-line/70 transition hover:bg-sunken/50', selected ? 'bg-brand-soft/40' : urgencyRow(t).split(' ').filter((c) => c.startsWith('bg-')).join(' '))}>
+        <td className={clsx('w-8 border-l-4 py-2 pl-3', urgencyRow(t, { tint: false }))}>{onSelect && level === 0 && <input type="checkbox" className="h-4 w-4 accent-[#0F1535]" checked={!!selected} onChange={() => onSelect(t.id)} aria-label={`Select ${t.key}`} />}</td>
         <td className="py-2 pr-2">
           <div className="flex items-center gap-1.5" style={{ paddingLeft: level * 22 }}>
             {t.subtaskCount > 0 ? (
@@ -192,6 +240,7 @@ function Row({ t, level = 0, onChanged, showProject, selected, onSelect }) {
             <button type="button" onClick={() => openTask(t.id)} className="min-w-0 text-left">
               <span className="mr-2 text-xs font-semibold text-faint">{t.key}</span>
               <span className={clsx('text-sm font-medium', t.status === 'done' && 'text-muted line-through decoration-faint')}>{t.title}</span>
+              <UrgencyTag task={t} className="ml-2 align-middle" />
               <div className="mt-0.5"><Meta t={t} /></div>
             </button>
           </div>

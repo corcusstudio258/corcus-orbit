@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { MessageCircle, Send, Sparkles, KeyRound, ExternalLink, CheckCircle2, User, Building2, Palette, Plug, Mail, Video, Flame, UserPlus } from 'lucide-react';
+import clsx from 'clsx';
+import { MessageCircle, Send, Sparkles, KeyRound, ExternalLink, CheckCircle2, User, Building2, Palette, Plug, Mail, Video, Flame, UserPlus, BellRing } from 'lucide-react';
 import api from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { refreshAi } from '../lib/directory';
 import { useTheme } from '../lib/theme';
 import { Field, Toggle, PageLoader, Segmented, PageHeader, Tabs, Spinner, PasswordInput } from '../components/ui';
 import { ago } from '../lib/format';
+import { pushState, enablePush, disablePush, isIosWithoutInstall } from '../lib/push';
 
 const EVENTS = [
   ['assigned', 'Task assigned', 'When someone gives a person a task'],
@@ -19,6 +21,31 @@ const EVENTS = [
   ['client_update', 'Client updates', 'Progress updates sent to client portal users'],
   ['client_request', 'Client requests', 'New requests raised from the portal'],
 ];
+
+function BrowserAlerts({ prefs, setPref }) {
+  const [state, setState] = useState('…');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { pushState().then(setState); }, []);
+  const run = async (fn, ok) => { setBusy(true); try { setState(await fn()); if (ok) toast.success(ok); } catch (e) { toast.error(e.message); } finally { setBusy(false); } };
+  const test = async () => { try { await api.post('/push/test'); toast.success('Test sent. Look for the pop-up.'); } catch (e) { toast.error(e.message); } };
+  const label = { on: 'On for this browser', off: 'Off for this browser', blocked: 'Blocked in browser settings', unsupported: 'Not supported here' }[state] || 'Checking…';
+  return (
+    <div className="space-y-3 rounded-xl bg-sunken/60 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <BellRing size={16} className={state === 'on' ? 'text-leaf' : 'text-muted'} />
+        <span className="text-sm font-semibold">Browser notifications</span>
+        <span className={clsx('chip', state === 'on' ? 'bg-leaf/15 text-leaf' : state === 'blocked' ? 'bg-ember/10 text-ember' : 'bg-surface text-muted')}>{label}</span>
+      </div>
+      <p className="text-xs text-muted">Pop-ups on this computer or phone for the alerts picked below, even when Orbit is closed. Turn it on in each browser you use.{isIosWithoutInstall() ? ' On iPhone, add Orbit to your Home Screen first.' : ''}</p>
+      {state === 'blocked' && <p className="text-xs text-ember">Click the lock icon next to the address bar, allow Notifications, then reload.</p>}
+      <div className="flex flex-wrap gap-2">
+        {state !== 'on' && state !== 'unsupported' && <button type="button" className="btn-primary btn-sm" disabled={busy || state === 'blocked'} onClick={() => run(enablePush, 'Browser notifications are on')}>Turn on</button>}
+        {state === 'on' && <><button type="button" className="btn-ghost btn-sm" onClick={test}>Send a test</button><button type="button" className="btn-ghost btn-sm" disabled={busy} onClick={() => run(disablePush, 'Turned off for this browser')}>Turn off here</button></>}
+      </div>
+      {state === 'on' && <Toggle checked={prefs.push !== false} onChange={setPref('push')} label="Use pop-ups on all my browsers" hint="Switch off to pause them everywhere without removing browsers." />}
+    </div>
+  );
+}
 
 function Profile() {
   const { user, refresh } = useAuth();
@@ -34,6 +61,7 @@ function Profile() {
         <Field label="Name"><input className="input" value={f.name} onChange={(e) => setF((s) => ({ ...s, name: e.target.value }))} /></Field>
         <Field label="WhatsApp number" hint="Include the country code, e.g. 91 98765 43210"><input className="input" value={f.phone} onChange={(e) => setF((s) => ({ ...s, phone: e.target.value }))} /></Field>
         <Toggle checked={f.whatsappOptIn} onChange={(v) => setF((s) => ({ ...s, whatsappOptIn: v }))} label="Send me WhatsApp alerts" hint="In-app notifications always stay on." />
+        <BrowserAlerts prefs={f.notifyPrefs} setPref={pref} />
         <h3 className="pt-2 text-sm font-semibold text-muted">Alert me about</h3>
         {[['assigned', 'New assignments'], ['status', 'Status changes'], ['comment', 'Comments and mentions'], ['due', 'Deadlines'], ['approval', 'Approvals']].map(([k, l]) => (
           <Toggle key={k} checked={f.notifyPrefs[k] !== false} onChange={pref(k)} label={l} />

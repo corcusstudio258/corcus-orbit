@@ -40,6 +40,7 @@ app.use('/api/meetings', auth, require('./routes/meetings').router);
 app.use('/api/documents', auth, require('./routes/documents'));
 app.use('/api/people', auth, require('./routes/people'));
 app.use('/api/tools', auth, require('./routes/tools'));
+app.use('/api/push', auth, require('./routes/push'));
 app.use('/api/notifications', ...misc.notifications);
 app.use('/api/activity', ...misc.activity);
 app.use('/api/settings', ...misc.settings);
@@ -50,6 +51,8 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'Unknown API route.'
 // Serve the built React app in production (client/dist)
 const dist = path.resolve(__dirname, '../../client/dist');
 if (fs.existsSync(dist)) {
+  // The service worker must never be cached long, or browsers keep an old copy.
+  app.get('/sw.js', (req, res) => { res.set('Cache-Control', 'no-cache'); res.set('Service-Worker-Allowed', '/'); res.sendFile(path.join(dist, 'sw.js')); });
   app.use(express.static(dist, { maxAge: '7d', index: false }));
   app.get(/^\/(?!api|socket\.io).*/, (req, res) => res.sendFile(path.join(dist, 'index.html')));
 }

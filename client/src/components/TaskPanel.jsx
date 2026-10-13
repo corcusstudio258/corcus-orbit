@@ -182,7 +182,7 @@ function Breakdown({ task, onDone }) {
 
 export default function TaskPanel({ id, onClose, inDrawer }) {
   const nav = useNavigate();
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const people = useDirectory();
   const ai = useAiStatus();
   const compose = useComposer();
@@ -251,6 +251,7 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
   };
   const addLink = async (e) => { e.preventDefault(); if (!link.trim()) return; await patch({ links: [...(t.links || []), link.trim()] }); setLink(''); };
   const totalMinutes = t.TimeLogs.reduce((s, l) => s + (l.minutes || 0), 0);
+  const myReview = t.canApprove && (t.reviewers || []).some((r) => r.id === user?.id);
   const assignable = can('tasks.assign') ? people : people.filter((p) => t.assignees.some((a) => a.id === p.id));
 
   const detail = (label, node) => (<div className="grid grid-cols-[110px_1fr] items-center gap-3 py-1.5"><span className="text-xs text-muted">{label}</span><div className="min-w-0 text-sm">{node}</div></div>);
@@ -282,9 +283,12 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
 
       <div className="space-y-5 px-5 py-5">
         {t.approvalStatus === 'pending' && t.status === 'review' && (
-          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-violet/30 bg-violet/5 px-4 py-3">
+          <div className={clsx('flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3', myReview ? 'border-violet bg-violet/10 ring-2 ring-violet/20' : 'border-violet/30 bg-violet/5')}>
             <ShieldCheck size={18} className="text-violet" />
-            <span className="flex-1 text-sm">Waiting for approval.</span>
+            <span className="flex-1 text-sm">
+              {myReview ? <b className="text-violet">This task is waiting for your review.</b> : 'Waiting for approval'}
+              {!myReview && t.reviewers?.length > 0 && <> from {t.reviewers.map((r) => r.name.split(' ')[0]).join(', ')}</>}{!myReview && '.'}
+            </span>
             {t.canApprove && (<>
               <button type="button" className="btn-ghost btn-sm" onClick={() => setDecision('changes')}><X size={14} />Request changes</button>
               <button type="button" className="btn-primary btn-sm" onClick={() => setDecision('approve')}><Check size={14} />Approve</button>
@@ -311,9 +315,10 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
 
         <StatusStepper status={t.status} disabled={!t.canEdit} onChange={(s, e) => patch({ status: s }, true, e)} />
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <label className="block"><span className="label">Assignees</span><UserPicker compact users={assignable} value={t.assignees.map((a) => a.id)} disabled={!t.canEdit || !can('tasks.assign')} onChange={(ids) => patch({ assigneeIds: ids })} placeholder="Unassigned" /></label>
           <div className="block"><span className="label">Due date and time</span><DueInput compact disabled={!t.canEdit} value={t.dueDate || ''} onChange={(v) => patch({ dueDate: v })} /></div>
+          <label className="block"><span className="label">Reviewers</span><UserPicker compact users={people} value={(t.reviewers || []).map((a) => a.id)} disabled={!t.canEdit} onChange={(ids) => patch({ reviewerIds: ids })} placeholder="No reviewer" /></label>
           <label className="block"><span className="label">Priority</span>
             <select disabled={!t.canEdit} className="input !py-1.5" value={t.priority} onChange={(e) => patch({ priority: e.target.value })}>{Object.entries(PRIORITY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
           </label>

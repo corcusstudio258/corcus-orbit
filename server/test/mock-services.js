@@ -1,11 +1,17 @@
-// Fake Firebase Auth REST + Zoom API for tests. Port 5098.
+// Fake Firebase Auth REST + Zoom API + Web Push endpoint for tests. Port 5098.
 const http = require('http');
+const https = require('https');
+const { execSync } = require('child_process');
+const os = require('os');
+const fsx = require('fs');
+const pathx = require('path');
 const log = [];
 const send = (res, code, body) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(body === undefined ? '' : JSON.stringify(body)); };
-http.createServer((req, res) => {
+const handler = (req, res) => {
   let raw = '';
   req.on('data', (c) => { raw += c; });
   req.on('end', () => {
+    if (req.url.startsWith('/push/')) { log.push({ method: req.method, path: req.url, encoding: req.headers['content-encoding'] }); return send(res, req.url.includes('gone') ? 410 : 201); }
     const body = raw ? (() => { try { return JSON.parse(raw); } catch { return {}; } })() : {};
     const url = new URL(req.url, 'http://x');
     log.push({ method: req.method, path: url.pathname, body });
@@ -25,4 +31,10 @@ http.createServer((req, res) => {
     if (url.pathname.startsWith('/v2/meetings/')) return send(res, 204);
     send(res, 404, { message: 'not found' });
   });
-}).listen(5098, () => console.log('mock services on 5098'));
+};
+http.createServer(handler).listen(5098, () => console.log('mock services on 5098'));
+// Web Push always uses HTTPS, so push endpoints get a self-signed HTTPS listener on 5097.
+// Start the API with NODE_TLS_REJECT_UNAUTHORIZED=0 in tests.
+const dir = fsx.mkdtempSync(pathx.join(os.tmpdir(), 'mockpush-'));
+execSync(`openssl req -x509 -newkey rsa:2048 -nodes -keyout ${dir}/k.pem -out ${dir}/c.pem -days 2 -subj /CN=localhost 2>/dev/null`);
+https.createServer({ key: fsx.readFileSync(`${dir}/k.pem`), cert: fsx.readFileSync(`${dir}/c.pem`) }, handler).listen(5097, () => console.log('mock push (https) on 5097'));

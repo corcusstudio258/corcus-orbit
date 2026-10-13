@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const { User, ProjectMember, Project, TaskAssignee, Task } = require('../models');
+const { User, ProjectMember, Project, TaskAssignee, TaskReviewer, Task } = require('../models');
 
 /** Everyone who reports to this user, directly or through others. */
 async function subordinateIds(userId) {
@@ -48,9 +48,10 @@ async function taskScope(req) {
   // "See every project" lists all projects but doesn't open every task, so use membership here.
   const member = await ProjectMember.findAll({ where: { userId: team }, attributes: ['projectId'], raw: true });
   const owned = await Project.findAll({ where: { ownerId: team }, attributes: ['id'], raw: true });
+  const reviewing = await TaskReviewer.findAll({ where: { userId: req.user.id }, attributes: ['taskId'], raw: true });
   return {
     [Op.or]: [
-      { id: assigned.map((a) => a.taskId) },
+      { id: [...assigned.map((a) => a.taskId), ...reviewing.map((r) => r.taskId)] },
       { createdById: team },
       { projectId: [...new Set([...member.map((m) => m.projectId), ...owned.map((p) => p.id)])] },
     ],

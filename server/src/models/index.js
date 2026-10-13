@@ -222,6 +222,15 @@ const Sprint = sequelize.define('Sprint', {
 
 const TaskDependency = sequelize.define('TaskDependency', {}); // taskId is blocked by blockerId
 const TaskWatcher = sequelize.define('TaskWatcher', {});
+const TaskReviewer = sequelize.define('TaskReviewer', {}); // people who approve the task when it reaches review
+
+// Browser push subscriptions (Web Push), one per browser per user.
+const PushSubscription = sequelize.define('PushSubscription', {
+  endpoint: { type: DataTypes.STRING(700), allowNull: false },
+  keys: json('keys', {}),
+  userAgent: DataTypes.STRING,
+  lastUsedAt: DataTypes.DATE,
+});
 
 // ---------- v2: collaboration ----------
 const Channel = sequelize.define('Channel', {
@@ -396,6 +405,9 @@ Sprint.hasMany(Task, { foreignKey: 'sprintId' });
 Task.belongsToMany(Task, { through: TaskDependency, as: 'blockers', foreignKey: 'taskId', otherKey: 'blockerId' });
 Task.belongsToMany(Task, { through: TaskDependency, as: 'blocking', foreignKey: 'blockerId', otherKey: 'taskId' });
 Task.belongsToMany(User, { through: TaskWatcher, as: 'watchers', foreignKey: 'taskId', otherKey: 'userId' });
+Task.belongsToMany(User, { through: TaskReviewer, as: 'reviewers', foreignKey: 'taskId', otherKey: 'userId' });
+PushSubscription.belongsTo(User, { foreignKey: 'userId' });
+User.hasMany(PushSubscription, { foreignKey: 'userId' });
 
 Channel.belongsToMany(User, { through: ChannelMember, as: 'members', foreignKey: 'channelId', otherKey: 'userId' });
 User.belongsToMany(Channel, { through: ChannelMember, as: 'channels', foreignKey: 'userId', otherKey: 'channelId' });
@@ -428,7 +440,7 @@ Template.belongsTo(User, { as: 'creator', foreignKey: 'createdById' });
 AiInsight.belongsTo(User, { foreignKey: 'userId' });
 
 module.exports = {
-  Section, Sprint, TaskDependency, TaskWatcher, Channel, ChannelMember, Message, Meeting, MeetingAttendee, Document,
+  Section, Sprint, TaskDependency, TaskWatcher, TaskReviewer, PushSubscription, Channel, ChannelMember, Message, Meeting, MeetingAttendee, Document,
   Attendance, PointEntry, UserBadge, Automation, Template, AiInsight, ClientFile,
   sequelize, Role, Client, User, Project, ProjectMember, Milestone, Task, TaskAssignee,
   ChecklistItem, Comment, Attachment, TimeLog, Activity, Notification, WhatsAppLog, ClientRequest, Setting,

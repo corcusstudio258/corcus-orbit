@@ -2,6 +2,7 @@ const { Notification, User, Activity, Project } = require('../models');
 const whatsapp = require('./whatsapp');
 const settings = require('./settings');
 const socket = require('./socket');
+const push = require('./push');
 
 // Maps a notification type to the user preference + WhatsApp event toggle it belongs to.
 const TYPE_MAP = {
@@ -43,6 +44,10 @@ async function notify({ userIds, type, title, body = '', link = '', exclude }) {
   for (const u of users) {
     const n = await Notification.create({ userId: u.id, type, title, body, link });
     socket.toUser(u.id, 'notification', n.toJSON());
+    // Browser notification (works with Orbit closed). Same per-type preferences, plus a master switch.
+    if (u.notifyPrefs?.push !== false && u.notifyPrefs?.[prefKey] !== false) {
+      push.sendToUser(u.id, { title, body, link, tag: link || type }).catch(() => {});
+    }
 
     const wantsWA = cfg.enabled && cfg.events?.[eventKey] !== false && u.whatsappOptIn && u.phone
       && (u.notifyPrefs?.[prefKey] !== false);

@@ -39,7 +39,7 @@ export default function TaskForm({ open, onClose, defaults = {}, onCreated }) {
     title: defaults.title || '', description: '', projectId: defaults.projectId || '', status: defaults.status || 'todo', priority: defaults.priority || 'medium',
     assigneeIds: defaults.assigneeIds || (can('tasks.assign') ? [] : [user.id]), dueDate: defaults.dueDate || '', startDate: '',
     estimateHours: '', storyPoints: '', milestoneId: '', sectionId: defaults.sectionId || '', sprintId: defaults.sprintId || '',
-    clientVisible: !!defaults.clientVisible, requiresApproval: false, checklist: [], subtasks: [], tags: '', recurrence: null,
+    clientVisible: !!defaults.clientVisible, requiresApproval: false, reviewerIds: [], checklist: [], subtasks: [], tags: '', recurrence: null,
   });
   const [f, setF] = useState(blank);
   const [meta, setMeta] = useState({ milestones: [], sections: [], sprints: [] });
@@ -187,7 +187,10 @@ export default function TaskForm({ open, onClose, defaults = {}, onCreated }) {
 
         <div className="space-y-3 rounded-xl bg-sunken/60 p-3">
           <Toggle checked={f.clientVisible} onChange={set('clientVisible')} label="Show in client portal" hint="The client sees this task, its progress and the comments you share." />
-          <Toggle checked={f.requiresApproval} onChange={set('requiresApproval')} label="Needs approval" hint="Marking it done sends it to review for a manager or the client to sign off." />
+          <Toggle checked={f.requiresApproval} onChange={(v) => setF((s) => ({ ...s, requiresApproval: v, reviewerIds: v ? s.reviewerIds : [] }))} label="Needs approval" hint="Marking it done sends it to review first." />
+          <Field label="Reviewer" hint="They get notified and approve or send it back. Leave empty to let the creator, project lead or manager approve.">
+            <UserPicker users={people} value={f.reviewerIds} onChange={(ids) => setF((s) => ({ ...s, reviewerIds: ids, requiresApproval: ids.length ? true : s.requiresApproval }))} placeholder="Pick a reviewer" />
+          </Field>
         </div>
       </form>
     </Modal>

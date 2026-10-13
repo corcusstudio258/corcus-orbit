@@ -223,14 +223,14 @@ router.delete('/:id', requirePerm('projects.manage'), wrap(async (req, res) => {
   const p = await Project.findByPk(req.params.id);
   if (!p) return res.status(404).json({ error: 'Project not found.' });
   if (String(req.body?.confirm || req.query.confirm || '').trim().toLowerCase() !== p.name.trim().toLowerCase()) return res.status(400).json({ error: 'Type the project name to confirm.' });
-  const { sequelize: sq, ChecklistItem, Comment, Attachment, TaskAssignee, TaskWatcher, Meeting, Channel, ClientRequest } = require('../models');
+  const { sequelize: sq, ChecklistItem, Comment, Attachment, TaskAssignee, TaskWatcher, TaskReviewer, Meeting, Channel, ClientRequest } = require('../models');
   const fs = require('fs'); const path = require('path');
   const dir = path.resolve(__dirname, '../..', process.env.UPLOAD_DIR || './uploads');
   const ids = (await Task.findAll({ where: { projectId: p.id }, attributes: ['id'], raw: true })).map((t) => t.id);
   const files = ids.length ? await Attachment.findAll({ where: { taskId: ids }, attributes: ['fileName'], raw: true }) : [];
   await sq.transaction(async (tx) => {
     if (ids.length) {
-      for (const M of [ChecklistItem, Comment, Attachment, TimeLog, TaskAssignee, TaskWatcher]) await M.destroy({ where: { taskId: ids }, transaction: tx });
+      for (const M of [ChecklistItem, Comment, Attachment, TimeLog, TaskAssignee, TaskWatcher, TaskReviewer]) await M.destroy({ where: { taskId: ids }, transaction: tx });
       await TaskDependency.destroy({ where: { [Op.or]: [{ taskId: ids }, { blockerId: ids }] }, transaction: tx });
       await Activity.update({ taskId: null }, { where: { taskId: ids }, transaction: tx });
       await ClientRequest.update({ taskId: null }, { where: { taskId: ids }, transaction: tx });

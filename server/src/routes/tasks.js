@@ -6,7 +6,7 @@ const multer = require('multer');
 const { Op, fn, col } = require('sequelize');
 const {
   sequelize, Task, Project, User, Role, TaskAssignee, ChecklistItem, Comment, Attachment, TimeLog, Activity, Milestone,
-  Section, Sprint, TaskDependency, TaskWatcher,
+  Section, Sprint, TaskDependency, TaskWatcher, TaskReviewer,
 } = require('../models');
 const { staffOnly } = require('../middleware/auth');
 const { taskScope, canSeeTask, canEditTask } = require('../services/access');
@@ -32,6 +32,7 @@ const listIncludes = [
   { model: User, as: 'assignees', attributes: userAttrs, through: { attributes: [] } },
   { model: Project, attributes: ['id', 'name', 'code', 'color', 'icon', 'clientId', 'ownerId'] },
   { model: Section, attributes: ['id', 'name', 'color'] },
+  { model: User, as: 'reviewers', attributes: userAttrs, through: { attributes: [] } },
 ];
 const short = (d) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 
@@ -93,7 +94,15 @@ async function collectDescendants(rootId) {
   return out;
 }
 
+async function reviewerIds(taskId) {
+  return (await TaskReviewer.findAll({ where: { taskId }, raw: true })).map((r) => r.userId);
+}
+
+/** Reviewers picked on the task approve it; without reviewers, the creator, project lead and assignees' managers do. */
 async function approversFor(task) {
+  const assigned = (await task.getAssignees({ attributes: ['id'] })).map((a) => a.id);
+  const picked = (await reviewerIds(task.id)).filter((id) => !assigned.includes(id));
+  if (picked.length) return picked;
   const ids = new Set([task.createdById]);
   if (task.projectId) {
     const p = await Project.findByPk(task.projectId, { attributes: ['ownerId'] });
@@ -108,6 +117,7 @@ async function approversFor(task) {
 async function canApprove(req, task) {
   const assigneeIds = (await TaskAssignee.findAll({ where: { taskId: task.id }, raw: true })).map((a) => a.userId);
   if (assigneeIds.includes(req.user.id) && !req.can('tasks.edit_all')) return false;
+  if ((await reviewerIds(task.id)).includes(req.user.id)) return true;
   if (req.can('tasks.approve')) return true;
   if (task.createdById === req.user.id) return true;
   if (task.projectId) {
@@ -115,6 +125,23 @@ async function canApprove(req, task) {
     if (p?.ownerId === req.user.id) return true;
   }
   return false;
+}
+
+/** Replace a task's reviewers; adding any switches on the approval step. Notifies new reviewers. */
+async function setReviewers(req, task, ids) {
+  const before = await reviewerIds(task.id);
+  const next = [...new Set((ids || []).map(Number).filter(Boolean))];
+  await TaskReviewer.destroy({ where: { taskId: task.id } });
+  if (next.length) await TaskReviewer.bulkCreate(next.map((userId) => ({ taskId: task.id, userId })));
+  if (next.length && !task.requiresApproval) { task.requiresApproval = true; await task.save(); }
+  const added = next.filter((id) => !before.includes(id));
+  if (added.length) {
+    const waiting = task.status === 'review' && task.approvalStatus === 'pending';
+    await notify({ userIds: added, type: 'approval_request', exclude: req.user.id,
+      title: waiting ? `Review needed: ${task.key}` : `${req.user.name} made you reviewer of ${task.key}`,
+      body: waiting ? `"${task.title}" is waiting for your review` : `${task.title}. You'll be asked to approve it when it's sent for review.`, link: `/tasks/${task.id}` });
+  }
+  return { changed: added.length > 0 || before.some((id) => !next.includes(id)), added };
 }
 
 async function watcherIds(taskId) {
@@ -138,8 +165,9 @@ async function createTask(req, data, { silent = false } = {}) {
   if (!data.parentId && !data.projectId) { const e = new Error('Every task lives in a project. Pick a project first.'); e.status = 400; throw e; }
   let assigneeIds = (data.assigneeIds || []).map(Number).filter(Boolean);
   if (assigneeIds.some((id) => id !== req.user.id) && !req.can('tasks.assign')) assigneeIds = assigneeIds.filter((id) => id === req.user.id);
-  const task = await createTaskRecord({ ...data, assigneeIds }, req.user.id);
+  const task = await createTaskRecord({ ...data, assigneeIds, ...(data.reviewerIds?.length ? { requiresApproval: true } : {}) }, req.user.id);
   await TaskWatcher.findOrCreate({ where: { taskId: task.id, userId: req.user.id } });
+  if (Array.isArray(data.reviewerIds) && data.reviewerIds.length) await setReviewers(req, task, data.reviewerIds);
   await activity({ actorId: req.user.id, action: 'task.created', summary: `created ${task.parentId ? 'subtask' : 'task'} ${task.key} "${task.title}"`,
     taskId: task.id, projectId: task.projectId, clientVisible: task.clientVisible });
   if (assigneeIds.length && !silent) {
@@ -228,6 +256,7 @@ router.get('/', wrap(async (req, res) => {
   if (q.to) and.push({ dueDate: { [Op.lte]: new Date(q.to) } });
   if (q.approval) and.push({ approvalStatus: q.approval });
   if (q.createdBy === 'me') and.push({ createdById: req.user.id });
+  if (q.reviewer === 'me') and.push({ id: (await TaskReviewer.findAll({ where: { userId: req.user.id }, raw: true })).map((r) => r.taskId) });
   if (q.watching === 'me') {
     const rows = await TaskWatcher.findAll({ where: { userId: req.user.id }, raw: true });
     and.push({ id: rows.map((r) => r.taskId) });
@@ -421,6 +450,11 @@ router.patch('/:id', wrap(async (req, res) => {
   let notice = null;
   if (b.status && b.status !== task.status) ({ notice } = await applyStatus(req, task, b.status));
 
+  if (Array.isArray(b.reviewerIds)) {
+    const r = await setReviewers(req, task, b.reviewerIds);
+    if (r.changed) await activity({ actorId: req.user.id, action: 'task.reviewers', summary: `updated reviewers on ${task.key}`, taskId: task.id, projectId: task.projectId });
+  }
+
   let added = [];
   if (Array.isArray(b.assigneeIds)) {
     const next = [...new Set(b.assigneeIds.map(Number))];
@@ -453,7 +487,7 @@ router.delete('/:id', wrap(async (req, res) => {
   if (!req.can('tasks.delete') && task.createdById !== req.user.id) return res.status(403).json({ error: "You can't delete this task." });
   const ids = [task.id, ...(await collectDescendants(task.id))];
   await sequelize.transaction(async (tx) => {
-    for (const M of [ChecklistItem, Comment, Attachment, TimeLog, TaskAssignee, TaskWatcher]) await M.destroy({ where: { taskId: ids }, transaction: tx });
+    for (const M of [ChecklistItem, Comment, Attachment, TimeLog, TaskAssignee, TaskWatcher, TaskReviewer]) await M.destroy({ where: { taskId: ids }, transaction: tx });
     await TaskDependency.destroy({ where: { [Op.or]: [{ taskId: ids }, { blockerId: ids }] }, transaction: tx });
     await Activity.update({ taskId: null }, { where: { taskId: ids }, transaction: tx });
     await Task.destroy({ where: { id: ids }, transaction: tx });

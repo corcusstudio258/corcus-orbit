@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import clsx from 'clsx';
-import { ChevronRight, Plus, CalendarRange, UserCheck, PenLine, Bell } from 'lucide-react';
+import { ChevronRight, Plus, CalendarRange, UserCheck, PenLine, Bell, ShieldCheck } from 'lucide-react';
 import { isToday, isPast, differenceInCalendarDays } from 'date-fns';
 import api from '../lib/api';
 import { useLive } from '../context/AuthContext';
 import { PageHeader, Tabs, PageLoader, Empty, DueBadge, PriorityFlag, StatusPill, Avatar } from '../components/ui';
 import TaskExplorer from '../components/TaskExplorer';
 import { useComposer, useOpenTask } from '../components/Layout';
-import { changeStatus } from '../components/TaskViews';
+import { changeStatus, urgencyRow, UrgencyTag } from '../components/TaskViews';
 
 const BUCKETS = [
   { key: 'overdue', label: 'Overdue', color: '#E5484D' },
@@ -50,7 +50,7 @@ function Agenda() {
           {!closed[g.key] && (
             <ul className="border-t border-line">
               {g.tasks.map((t) => (
-                <li key={t.id} className="group flex items-center gap-3 border-b border-line/70 px-4 py-2.5 last:border-0 hover:bg-sunken/50">
+                <li key={t.id} className={clsx('group flex items-center gap-3 border-b border-l-4 border-b-line/70 px-4 py-2.5 last:border-b-0 hover:bg-sunken/50', urgencyRow(t))}>
                   <button type="button" onClick={() => done(t)} className="grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 border-line text-transparent transition hover:border-leaf hover:text-leaf" aria-label={`Complete ${t.key}`}>✓</button>
                   <button type="button" onClick={() => openTask(t.id)} className="min-w-0 flex-1 text-left">
                     <span className="block truncate text-sm font-medium">{t.title}</span>
@@ -58,6 +58,7 @@ function Agenda() {
                   </button>
                   <PriorityFlag priority={t.priority} />
                   <span className="hidden w-32 sm:block"><DueBadge date={t.dueDate} compact /></span>
+                  <UrgencyTag task={t} />
                   <span className="hidden md:block"><StatusPill status={t.status} small /></span>
                   <span className="hidden lg:flex">{t.assignees.filter((a) => a).slice(0, 3).map((a) => <Avatar key={a.id} user={a} size={20} ring />)}</span>
                 </li>
@@ -76,6 +77,10 @@ export default function MyTasks() {
   const tab = params.get('tab') || (hasFilter ? 'assigned' : 'agenda');
   const compose = useComposer();
   const setTab = (t) => { const p = new URLSearchParams(); p.set('tab', t); setParams(p); };
+  const [toReview, setToReview] = useState(0);
+  const loadReview = () => api.get('/tasks?reviewer=me&status=review&limit=200').then((r) => setToReview(r.data.filter((t) => t.approvalStatus === 'pending').length)).catch(() => {});
+  useEffect(() => { loadReview(); }, []);
+  useLive('task:changed', loadReview);
   return (
     <div>
       <PageHeader title="My tasks" subtitle="Everything on your plate, at any level of a task tree." actions={<button type="button" className="btn-primary" onClick={() => compose()}><Plus size={16} />New task</button>} />
@@ -84,10 +89,12 @@ export default function MyTasks() {
         { value: 'assigned', label: 'All assigned', icon: UserCheck },
         { value: 'created', label: 'Created by me', icon: PenLine },
         { value: 'watching', label: 'Watching', icon: Bell },
+        { value: 'review', label: 'To review', icon: ShieldCheck, count: toReview || undefined },
       ]} /></div>
       {tab === 'agenda' && <Agenda />}
       {tab === 'assigned' && <TaskExplorer key="assigned" syncUrl fixed={{ assignee: 'me' }} storageKey="mine" defaultGroup="project" />}
       {tab === 'created' && <TaskExplorer key="created" syncUrl fixed={{ createdBy: 'me' }} storageKey="created" defaultGroup="status" />}
+      {tab === 'review' && <TaskExplorer key="review" syncUrl fixed={{ reviewer: 'me' }} storageKey="review" defaultGroup="status" />}
       {tab === 'watching' && <TaskExplorer key="watching" syncUrl fixed={{ watching: 'me' }} storageKey="watching" defaultGroup="project" />}
     </div>
   );

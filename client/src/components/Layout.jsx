@@ -5,6 +5,7 @@ import {
   LayoutDashboard, CheckSquare, FolderKanban, CalendarDays, Building2, Inbox, Users, ShieldCheck, Activity, Settings, Bell, Plus, Search,
   LogOut, Menu as MenuIcon, X, Timer, Square, MessagesSquare, Video, FileText, Sparkles, FileBarChart, HeartPulse, BarChart3, Fingerprint,
   Trophy, Workflow, LayoutTemplate, ArrowLeftRight, ChevronDown, Moon, Sun, LogIn,
+  BellRing,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../lib/api';
@@ -16,6 +17,7 @@ import TaskPanel from './TaskPanel';
 import CommandPalette from './CommandPalette';
 import AiPanel from './AiPanel';
 import { ago } from '../lib/format';
+import { pushSupported, permission, enablePush, syncPush } from '../lib/push';
 
 const ComposerCtx = createContext(() => {});
 export const useComposer = () => useContext(ComposerCtx);
@@ -232,6 +234,31 @@ function TaskDrawerHost() {
   );
 }
 
+function PushPrompt() {
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    syncPush();
+    let dismissed = false;
+    try { dismissed = localStorage.getItem('orbit:push-prompt') === 'no'; } catch { /* ignore */ }
+    if (!dismissed && pushSupported() && permission() === 'default') setShow(true);
+  }, []);
+  if (!show) return null;
+  const later = () => { try { localStorage.setItem('orbit:push-prompt', 'no'); } catch { /* ignore */ } setShow(false); };
+  const on = async () => {
+    setBusy(true);
+    try { await enablePush(); toast.success('Browser notifications are on'); setShow(false); } catch (e) { toast.error(e.message); later(); } finally { setBusy(false); }
+  };
+  return (
+    <div className="mb-5 flex flex-wrap items-center gap-3 rounded-2xl border border-cobalt/25 bg-cobalt/5 px-4 py-3">
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-cobalt/10 text-cobalt"><BellRing size={18} /></span>
+      <div className="min-w-0 flex-1 text-sm"><b>Turn on browser notifications</b><div className="text-muted">Get new tasks, reviews, comments and deadlines as pop-ups, even when Orbit is closed.</div></div>
+      <button type="button" className="btn-ghost btn-sm" onClick={later}>Not now</button>
+      <button type="button" className="btn-primary btn-sm" disabled={busy} onClick={on}>Turn on</button>
+    </div>
+  );
+}
+
 export default function Layout() {
   const { user, company, logout, can } = useAuth();
   const [mobile, setMobile] = useState(false);
@@ -298,7 +325,7 @@ export default function Layout() {
                 <Notifications />
               </div>
             </header>
-            <main className="mx-auto w-full max-w-[1480px] flex-1 px-4 py-6 sm:px-6 lg:px-8"><Outlet /></main>
+            <main className="mx-auto w-full max-w-[1480px] flex-1 px-4 py-6 sm:px-6 lg:px-8"><PushPrompt /><Outlet /></main>
           </div>
         </div>
 
