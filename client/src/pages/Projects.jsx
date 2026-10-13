@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
@@ -183,11 +184,24 @@ function QuickEdit({ p, onChanged }) {
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
   const ref = useRef(null);
+  const pop = useRef(null);
+  const [pos, setPos] = useState(null);
+  const place = () => {
+    const r = ref.current?.getBoundingClientRect(); if (!r) return;
+    const w = 288; const h = pop.current?.offsetHeight || 330;
+    const left = Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w));
+    const below = r.bottom + 6; const up = window.innerHeight - below < h && r.top > h + 6;
+    setPos({ left, top: up ? r.top - h - 6 : Math.min(below, window.innerHeight - h - 8) });
+  };
   useEffect(() => {
     if (!open) return undefined;
-    const h = (e) => ref.current && !ref.current.contains(e.target) && setOpen(false);
-    document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h);
-  }, [open]);
+    place();
+    const h = (e) => !ref.current?.contains(e.target) && !pop.current?.contains(e.target) && setOpen(false);
+    const k = (e) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', h); document.addEventListener('keydown', k);
+    window.addEventListener('scroll', place, true); window.addEventListener('resize', place);
+    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k); window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place); };
+  }, [open, del]); // eslint-disable-line react-hooks/exhaustive-deps
   const stop = (e) => { e.preventDefault(); e.stopPropagation(); };
   const patch = async (body, msg) => {
     setBusy(true);
@@ -200,10 +214,11 @@ function QuickEdit({ p, onChanged }) {
   return (
     <div ref={ref} className="relative" onClick={stop} onKeyDown={(e) => e.stopPropagation()} role="presentation">
       <button type="button" onClick={(e) => { stop(e); setOpen((o) => !o); setName(p.name); }} className="rounded-lg p-1.5 text-muted opacity-60 transition hover:bg-sunken hover:text-ink group-hover:opacity-100" aria-label={`Quick edit ${p.name}`}><Pencil size={15} /></button>
-      {open && (
-        <div className="absolute right-0 top-9 z-30 w-72 cursor-default rounded-2xl border border-line bg-surface p-3 text-left shadow-pop">
+      {open && createPortal(
+        <div ref={pop} style={pos ? { left: pos.left, top: pos.top } : { visibility: 'hidden' }} onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label={`Quick edit ${p.name}`}
+          className="fixed z-[60] w-72 cursor-default rounded-2xl border border-line bg-surface p-3 text-left shadow-pop">
           <p className="mb-2 text-xs font-semibold text-muted">Quick edit</p>
-          <form onSubmit={(e) => { stop(e); if (name.trim() && name !== p.name) patch({ name: name.trim() }, 'Renamed'); }} className="flex gap-1.5">
+          <form onSubmit={(e) => { e.preventDefault(); if (name.trim() && name !== p.name) patch({ name: name.trim() }, 'Renamed'); }} className="flex gap-1.5">
             <input className="input !py-1.5 text-sm" value={name} onChange={(e) => setName(e.target.value)} aria-label="Project name" />
             <button className="btn-ink btn-sm" disabled={busy || !name.trim() || name === p.name}>Save</button>
           </form>
@@ -224,7 +239,7 @@ function QuickEdit({ p, onChanged }) {
               </div>
             )}
           </div>
-        </div>
+        </div>, document.body,
       )}
     </div>
   );
