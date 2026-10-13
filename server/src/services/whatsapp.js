@@ -36,15 +36,27 @@ async function sendCloud({ base, token, phoneNumberId, apiVersion, mode, templat
         components: [{ type: 'body', parameters: [{ type: 'text', text: message.replace(/\s*\n+\s*/g, ' | ').slice(0, 1000) }] }],
       },
     };
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const text = await r.text();
+  const json = { 'Content-Type': 'application/json', Accept: 'application/json' };
+  const tok = String(token).trim().replace(/^Bearer\s+/i, '');
+  // Some Cloud API proxies want the token differently, so on 401 try the other common forms.
+  const attempts = [
+    [url, { Authorization: `Bearer ${tok}` }],
+    ...(base.includes('graph.facebook.com') ? [] : [
+      [url, { Authorization: tok }],
+      [url, { 'x-access-token': tok, token: tok }],
+      [`${url}?access_token=${encodeURIComponent(tok)}`, {}],
+    ]),
+  ];
+  let r; let text = '';
+  for (const [u, h] of attempts) {
+    r = await fetch(u, { method: 'POST', headers: { ...json, ...h }, body: JSON.stringify(body) });
+    text = await r.text();
+    if (r.status !== 401) break;
+  }
   let data = {}; try { data = JSON.parse(text); } catch { /* not JSON */ }
-  const err = data?.error?.error_user_msg || data?.error?.message || data?.message;
-  if (!r.ok || data?.error || data?.success === false) throw new Error(err || `${label} returned ${r.status}: ${text.slice(0, 200)}`);
+  const err = data?.error?.error_user_msg || data?.error?.message || (typeof data?.error === 'string' ? data.error : '') || data?.message;
+  if (r.status === 401) throw new Error(`${label} rejected the access token (401). Create a new token in the panel and paste it again.`);
+  if (!r.ok || data?.error || data?.success === false) throw new Error(err ? `${label}: ${err}` : `${label} returned ${r.status}: ${text.slice(0, 200)}`);
   return data;
 }
 
