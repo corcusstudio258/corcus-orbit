@@ -242,7 +242,6 @@ function TemplatePreview({ id }) {
 }
 
 const TPL_ICONS = ['📦', '📅', '📣', '🎬', '🎨', '🖥️', '🤝', '🛒', '🏥', '☀️', '🏗️', '🎯', '📸', '✍️', '🚀'];
-const blankTask = (section) => ({ title: '', section: section || '', offsetDays: 0, priority: 'medium', estimateHours: '', subtasks: '' });
 
 export function TemplateBuilder({ open, onClose, template, onSaved }) {
   const [f, setF] = useState(null);
@@ -254,22 +253,18 @@ export function TemplateBuilder({ open, onClose, template, onSaved }) {
       name: template?.name || '', description: template?.description || '', category: template?.category || 'Marketing', icon: template?.icon || '📦',
       sections: (st.sections || [{ name: 'Plan' }, { name: 'Make' }, { name: 'Deliver' }]).map((x) => x.name),
       milestones: (st.milestones || []).map((m) => ({ title: m.title, offsetDays: m.offsetDays ?? 0 })),
-      tasks: (st.tasks || []).length ? st.tasks.map((t) => ({ title: t.title, section: t.section || '', offsetDays: t.offsetDays ?? 0, priority: t.priority || 'medium', estimateHours: t.estimateHours || '', subtasks: (t.subtasks || []).map((x) => (typeof x === 'string' ? x : x.title)).join(', ') }))
-        : [blankTask((st.sections || [{ name: 'Plan' }])[0]?.name || 'Plan')],
+      // Templates only set up a project's stages and milestones; tasks saved in older templates are kept as they are.
+      tasks: st.tasks || [],
     });
   }, [open, template]);
   if (!open || !f) return null;
-  const setT = (i, patch) => setF((x) => ({ ...x, tasks: x.tasks.map((t, j) => (j === i ? { ...t, ...patch } : t)) }));
-  const moveT = (i, d) => setF((x) => { const ts = [...x.tasks]; const j = i + d; if (j < 0 || j >= ts.length) return x; [ts[i], ts[j]] = [ts[j], ts[i]]; return { ...x, tasks: ts }; });
   const save = async () => {
-    const tasks = f.tasks.filter((t) => t.title.trim());
     if (!f.name.trim()) return toast.error('Name the template.');
-    if (!tasks.length) return toast.error('Add at least one task.');
+    if (!f.sections.some((x) => x.trim())) return toast.error('Add at least one stage.');
     const structure = {
       sections: f.sections.filter((x) => x.trim()).map((name) => ({ name: name.trim() })),
       milestones: f.milestones.filter((m) => m.title.trim()).map((m) => ({ title: m.title.trim(), offsetDays: Number(m.offsetDays) || 0 })),
-      tasks: tasks.map((t) => ({ title: t.title.trim(), section: t.section || undefined, offsetDays: Number(t.offsetDays) || 0, priority: t.priority, estimateHours: Number(t.estimateHours) || undefined,
-        subtasks: String(t.subtasks || '').split(',').map((x) => x.trim()).filter(Boolean).map((title) => ({ title })) })),
+      tasks: f.tasks,
     };
     setBusy(true);
     try {
@@ -278,10 +273,10 @@ export function TemplateBuilder({ open, onClose, template, onSaved }) {
       toast.success('Template saved'); onSaved(data); onClose();
     } catch (err) { toast.error(err.message); } finally { setBusy(false); }
   };
-  const days = Math.max(0, ...f.tasks.map((t) => Number(t.offsetDays) || 0), ...f.milestones.map((m) => Number(m.offsetDays) || 0));
+  const days = Math.max(0, ...f.milestones.map((m) => Number(m.offsetDays) || 0));
   return (
-    <Modal open onClose={onClose} title={template?.id ? 'Edit template' : 'Create a template'} subtitle="Stages, milestones and tasks. Days count from the project start date." width="max-w-4xl"
-      footer={<><span className="mr-auto text-xs text-muted">{f.tasks.filter((t) => t.title.trim()).length} tasks over about {days} days</span><button type="button" className="btn-ghost" onClick={onClose}>Cancel</button><button type="button" className="btn-primary" disabled={busy} onClick={save}>Save template</button></>}>
+    <Modal open onClose={onClose} title={template?.id ? 'Edit template' : 'Create a template'} subtitle="Pick a template when you create a project: it sets up the pipeline stages and milestones. Days count from the project start date." width="max-w-4xl"
+      footer={<><span className="mr-auto text-xs text-muted">{f.sections.filter((x) => x.trim()).length} stages, {f.milestones.filter((m) => m.title.trim()).length} milestones{days ? ` over about ${days} days` : ''}</span><button type="button" className="btn-ghost" onClick={onClose}>Cancel</button><button type="button" className="btn-primary" disabled={busy} onClick={save}>Save template</button></>}>
       <div className="space-y-6">
         <div className="grid gap-3 sm:grid-cols-[72px_1fr_180px]">
           <Field label="Icon"><select className="input text-center text-lg" value={f.icon} onChange={(e) => setF({ ...f, icon: e.target.value })}>{TPL_ICONS.map((i) => <option key={i}>{i}</option>)}</select></Field>
@@ -294,7 +289,7 @@ export function TemplateBuilder({ open, onClose, template, onSaved }) {
           <div className="flex flex-wrap gap-2">
             {f.sections.map((sname, i) => (
               <span key={i} className="inline-flex items-center gap-1 rounded-full border border-line bg-surface py-0.5 pl-3 pr-1">
-                <input className="w-28 bg-transparent text-sm outline-none" value={sname} onChange={(e) => setF((x) => ({ ...x, sections: x.sections.map((y, j) => (j === i ? e.target.value : y)), tasks: x.tasks.map((t) => (t.section === sname ? { ...t, section: e.target.value } : t)) }))} />
+                <input className="w-28 bg-transparent text-sm outline-none" value={sname} onChange={(e) => setF((x) => ({ ...x, sections: x.sections.map((y, j) => (j === i ? e.target.value : y)) }))} />
                 <button type="button" className="rounded-full p-1 text-muted hover:text-ember" onClick={() => setF((x) => ({ ...x, sections: x.sections.filter((_, j) => j !== i) }))} aria-label="Remove stage"><X size={12} /></button>
               </span>
             ))}
@@ -314,31 +309,6 @@ export function TemplateBuilder({ open, onClose, template, onSaved }) {
               </div>
             ))}
             <button type="button" className="btn-ghost btn-sm" onClick={() => setF((x) => ({ ...x, milestones: [...x.milestones, { title: '', offsetDays: days }] }))}><Plus size={13} />Milestone</button>
-          </div>
-        </section>
-        <section>
-          <h3 className="mb-2 text-sm font-semibold">Tasks</h3>
-          <div className="space-y-2">
-            {f.tasks.map((t, i) => (
-              <div key={i} className="rounded-xl border border-line bg-surface p-2.5">
-                <div className="grid gap-2 sm:grid-cols-[1fr_140px_80px_110px_auto]">
-                  <input className="input !py-1.5" value={t.title} onChange={(e) => setT(i, { title: e.target.value })} placeholder="Write 30 captions" />
-                  <select className="input !py-1.5" value={t.section} onChange={(e) => setT(i, { section: e.target.value })}><option value="">First stage</option>{f.sections.filter(Boolean).map((x) => <option key={x}>{x}</option>)}</select>
-                  <label className="relative"><input type="number" min="0" className="input !py-1.5 pr-9" value={t.offsetDays} onChange={(e) => setT(i, { offsetDays: e.target.value })} aria-label="Due day" /><span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-faint">day</span></label>
-                  <select className="input !py-1.5" value={t.priority} onChange={(e) => setT(i, { priority: e.target.value })}>{PRIORITY_ORDER.map((k) => <option key={k} value={k}>{PRIORITY[k].label}</option>)}</select>
-                  <div className="flex items-center gap-0.5">
-                    <button type="button" className="rounded p-1 text-muted hover:bg-sunken disabled:opacity-30" disabled={i === 0} onClick={() => moveT(i, -1)} aria-label="Up"><ArrowDown size={13} className="rotate-180" /></button>
-                    <button type="button" className="rounded p-1 text-muted hover:bg-sunken disabled:opacity-30" disabled={i === f.tasks.length - 1} onClick={() => moveT(i, 1)} aria-label="Down"><ArrowDown size={13} /></button>
-                    <button type="button" className="rounded p-1 text-muted hover:text-ember" onClick={() => setF((x) => ({ ...x, tasks: x.tasks.filter((_, j) => j !== i) }))} aria-label="Remove task"><Trash2 size={13} /></button>
-                  </div>
-                </div>
-                <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_120px]">
-                  <input className="input !py-1.5 text-xs" value={t.subtasks} onChange={(e) => setT(i, { subtasks: e.target.value })} placeholder="Subtasks, comma separated (optional)" />
-                  <input type="number" min="0" step="0.5" className="input !py-1.5 text-xs" value={t.estimateHours} onChange={(e) => setT(i, { estimateHours: e.target.value })} placeholder="Hours" />
-                </div>
-              </div>
-            ))}
-            <button type="button" className="btn-ghost btn-sm" onClick={() => setF((x) => ({ ...x, tasks: [...x.tasks, blankTask(x.tasks[x.tasks.length - 1]?.section || x.sections[0])] }))}><Plus size={13} />Task</button>
           </div>
         </section>
       </div>

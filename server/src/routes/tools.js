@@ -97,7 +97,8 @@ router.post('/templates', requirePerm('projects.manage', 'templates.manage'), wr
     structure = await snapshotProject(p);
   }
   if (!b.name?.trim()) return res.status(400).json({ error: 'Name the template.' });
-  if (!structure?.tasks?.length) return res.status(400).json({ error: 'A template needs at least one task.' });
+  if (!structure?.sections?.length && !structure?.tasks?.length) return res.status(400).json({ error: 'A template needs at least one stage.' });
+  structure = { sections: [], milestones: [], tasks: [], ...structure };
   const t = await Template.create({ name: b.name.trim(), description: b.description || '', category: b.category || 'General', icon: b.icon || '📦', structure, createdById: req.user.id });
   res.status(201).json(t);
 }));
