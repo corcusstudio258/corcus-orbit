@@ -66,6 +66,7 @@ async function start() {
   await require('./config/migrate').migrate();
   await ensureRoles();
   await require('./config/defaults').ensureDefaults();
+  if (process.env.IMPORT_SYNCUPP !== '0') await require('./config/importSyncupp').run().catch((e) => console.error('[import] SyncUpp failed:', e.message));
   require('./services/hooks').register();
   socket.init(server, origins);
   reminders.start();

@@ -1,0 +1,56 @@
+{
+  "source": "SyncUpp workspace corcus, exported 2026-10-13",
+  "people": {
+    "corcusstudio@gmail.com": "Ayush Anand",
+    "vidyasupergupts@gmail.com": "Vidya Gupta",
+    "mohitkumar@corcus.in": "Mohit Kumar",
+    "ashishofficial1603@gmail.com": "Ashish Kumar",
+    "sk2247525@gmail.com": "Sweta Kumari",
+    "durganshisingh@corcus.in": "Durganshi Singh",
+    "animeshanand@corcus.in": "Animesh Anand",
+    "deepakkumar@corcus.in": "Deepak Kumar",
+    "sujitkumar@corcus.in": "Sujit Kumar",
+    "alkarai@corcus.in": "Alka Rai",
+    "tanisha@corcus.in": "Tanisha",
+    "priyanshukumar09430056@gmail.com": "Priyanshu Kumar",
+    "vivek07corcus@gmail.com": "Vivek Kumar",
+    "arushisingh@corcus.in": "Arushi Singh"
+  },
+  "boards": [
+    {
+      "name": "WhatsApp API", "code": "WAP", "icon": "💬", "color": "#A0937D", "doneCount": 9,
+      "members": ["corcusstudio@gmail.com", "vidyasupergupts@gmail.com", "mohitkumar@corcus.in", "ashishofficial1603@gmail.com"],
+      "tasks": []
+    },
+    {
+      "name": "Google My Business", "code": "GMB", "icon": "📍", "color": "#F59E6B", "doneCount": 241,
+      "members": ["corcusstudio@gmail.com", "vidyasupergupts@gmail.com", "mohitkumar@corcus.in", "sk2247525@gmail.com", "durganshisingh@corcus.in", "ashishofficial1603@gmail.com", "animeshanand@corcus.in", "deepakkumar@corcus.in", "sujitkumar@corcus.in", "alkarai@corcus.in", "tanisha@corcus.in", "priyanshukumar09430056@gmail.com", "vivek07corcus@gmail.com"],
+      "tasks": [
+        { "title": "Servin Agro ( Paidavaar)", "due": "2026-10-15T12:00:00+05:30", "priority": "medium" },
+        { "title": "My Vastuguru (RACHI)", "due": "2026-10-15T12:00:00+05:30", "priority": "high" },
+        { "title": "My Vastuguru (PATNA)", "due": "2026-10-15T12:00:00+05:30", "priority": "high" },
+        { "title": "Ridhi Sidhi Machinery", "due": "2026-10-15T12:00:00+05:30", "priority": "medium" },
+        { "title": "The Sugr Clinic", "due": "2026-10-15T12:00:00+05:30", "priority": "medium" },
+        { "title": "Advance", "due": "2026-10-15T12:00:00+05:30", "priority": "medium" },
+        { "title": "Vastumaye", "due": "2026-10-15T12:00:00+05:30", "priority": "medium" },
+        { "title": "Corcus Studio", "due": "2026-10-15T12:00:00+05:30", "priority": "high" }
+      ],
+      "taskAssignees": ["corcusstudio@gmail.com", "durganshisingh@corcus.in", "mohitkumar@corcus.in", "ashishofficial1603@gmail.com", "sk2247525@gmail.com"]
+    },
+    {
+      "name": "Social Media Optimization", "code": "SMO", "icon": "📱", "color": "#7FA3B0", "doneCount": 31,
+      "members": ["mohitkumar@corcus.in", "durganshisingh@corcus.in", "ashishofficial1603@gmail.com", "corcusstudio@gmail.com", "vidyasupergupts@gmail.com", "sk2247525@gmail.com"],
+      "tasks": []
+    },
+    {
+      "name": "Ads Management", "code": "ADS", "icon": "📣", "color": "#E57C93", "doneCount": 151,
+      "members": ["corcusstudio@gmail.com", "vidyasupergupts@gmail.com", "mohitkumar@corcus.in", "deepakkumar@corcus.in", "animeshanand@corcus.in", "ashishofficial1603@gmail.com", "tanisha@corcus.in", "sk2247525@gmail.com"],
+      "tasks": []
+    },
+    {
+      "name": "Individual Tasks", "code": "IND", "icon": "🗂️", "color": "#8EACCD", "doneCount": 745,
+      "members": ["corcusstudio@gmail.com", "arushisingh@corcus.in", "alkarai@corcus.in", "mohitkumar@corcus.in", "deepakkumar@corcus.in", "sujitkumar@corcus.in", "animeshanand@corcus.in", "tanisha@corcus.in", "vidyasupergupts@gmail.com", "durganshisingh@corcus.in", "priyanshukumar09430056@gmail.com", "ashishofficial1603@gmail.com", "sk2247525@gmail.com", "vivek07corcus@gmail.com"],
+      "tasks": []
+    }
+  ]
+}
