@@ -217,7 +217,7 @@ export function PortalHome() {
         )}
       </section>
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-5">
         <section className="panel p-5">
           <h2 className="mb-4 font-semibold">Coming up</h2>
           <ul className="space-y-3">
@@ -229,15 +229,6 @@ export function PortalHome() {
             ))}
             {!data.upcoming.length && <li className="text-sm text-muted">No upcoming deadlines.</li>}
           </ul>
-        </section>
-        <section className="panel p-5">
-          <h2 className="mb-4 font-semibold">Latest updates</h2>
-          <ol className="space-y-3">
-            {data.activity.map((a) => (
-              <li key={a.id} className="flex gap-3 text-sm"><Avatar user={a.actor} size={22} /><span><span className="font-medium">{a.actor?.name}</span> <span className="text-muted">{a.summary}</span><span className="block text-[11px] text-muted/70">{ago(a.createdAt)}, {a.Project?.name}</span></span></li>
-            ))}
-            {!data.activity.length && <li className="text-sm text-muted">Updates appear here as the team works.</li>}
-          </ol>
         </section>
       </div>
     </div>
@@ -320,12 +311,6 @@ export function PortalProject() {
               {p.files.map((f) => <li key={f.id}><a href={fileUrl(f.id)} className="flex items-center gap-2 hover:text-cobalt"><Paperclip size={14} className="text-muted" /><span className="flex-1 truncate">{f.name}</span><span className="text-xs text-muted">{bytes(f.size)}</span><Download size={14} /></a></li>)}
               {!p.files.length && <li className="text-muted">No files shared yet.</li>}
             </ul>
-          </section>
-          <section className="panel p-5">
-            <h2 className="mb-3 font-semibold">Updates</h2>
-            <ol className="space-y-3">
-              {p.activity.slice(0, 15).map((a) => <li key={a.id} className="flex gap-2 text-sm"><Avatar user={a.actor} size={20} /><span><span className="font-medium">{a.actor?.name}</span> <span className="text-muted">{a.summary}</span><span className="block text-[11px] text-muted/70">{ago(a.createdAt)}</span></span></li>)}
-            </ol>
           </section>
         </div>
       </div>

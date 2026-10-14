@@ -227,7 +227,9 @@ const Sprint = sequelize.define('Sprint', {
 
 const TaskDependency = sequelize.define('TaskDependency', {}); // taskId is blocked by blockerId
 const TaskWatcher = sequelize.define('TaskWatcher', {});
-const TaskReviewer = sequelize.define('TaskReviewer', {}); // people who approve the task when it reaches review
+const TaskReviewer = sequelize.define('TaskReviewer', { // people who approve the task when it reaches review
+  auto: { type: DataTypes.BOOLEAN, defaultValue: false }, // added from the workspace reviewers list
+});
 
 // Browser push subscriptions (Web Push), one per browser per user.
 const PushSubscription = sequelize.define('PushSubscription', {

@@ -27,6 +27,31 @@ function validate(req, body) {
   return null;
 }
 
+// ---------- workspace reviewers ----------
+router.get('/reviewers', requirePerm('roles.manage'), async (req, res) => {
+  const cfg = await require('../services/reviewers').config();
+  res.json(cfg);
+});
+router.put('/reviewers', requirePerm('roles.manage'), async (req, res) => {
+  try {
+    const rv = require('../services/reviewers');
+    const { notify, activity } = require('../services/notify');
+    const before = (await rv.config()).userIds;
+    const userIds = await rv.cleanUserIds(req.body.userIds);
+    const projectIds = [...new Set((req.body.projectIds || []).map(Number).filter(Boolean))];
+    await require('../services/settings').set('reviewers', { userIds, projectIds });
+    const r = await rv.sync();
+    const fresh = userIds.filter((id) => !before.includes(id));
+    for (const id of fresh) {
+      const n = r.perUser[id] || 0;
+      await notify({ userIds: [id], type: 'approval_request', exclude: req.user.id, title: `${req.user.name} made you a reviewer`,
+        body: `You review ${projectIds.length ? 'tasks in the chosen projects' : 'tasks in every project'}${n ? ` (${n} open now)` : ''}. You'll get a message when each one is ready for review.`, link: '/my-tasks?tab=review' });
+    }
+    await activity({ actorId: req.user.id, action: 'reviewers.updated', summary: `updated the workspace reviewers (${userIds.length})` });
+    res.json({ userIds, projectIds, ...r });
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
 router.post('/', requirePerm('roles.manage'), async (req, res) => {
   const err = validate(req, req.body);
   if (err) return res.status(400).json({ error: err });

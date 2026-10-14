@@ -52,8 +52,6 @@ router.get('/overview', wrap(async (req, res) => {
   const awaiting = visible.filter((t) => t.status === 'review');
   const briefs = visible.filter((t) => t.descReviewStatus === 'requested' && t.descClientVisible !== false && String(t.description || '').trim());
   const upcoming = visible.filter((t) => t.status !== 'done' && t.dueDate).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate)).slice(0, 6);
-  const feed = await Activity.findAll({ where: { projectId: ids, clientVisible: true }, order: [['createdAt', 'DESC']], limit: 20,
-    include: [{ model: User, as: 'actor', attributes: ['id', 'name', 'color'] }, { model: Project, attributes: ['id', 'name', 'color'] }] });
   const clientJson = client.toJSON(); delete clientJson.secrets;
   const reviewFiles = visible.length ? await Attachment.findAll({ where: { taskId: visible.map((t) => t.id), clientVisible: true, commentId: null, clientReviewStatus: ['requested', 'none'] }, order: [['createdAt', 'DESC']], limit: 12 }) : [];
   res.json({
@@ -70,7 +68,7 @@ router.get('/overview', wrap(async (req, res) => {
     awaitingReview: awaiting.map((t) => ({ ...clean(t, pm), project: t.Project })),
     briefs: briefs.map((t) => ({ ...clean(t, pm), project: t.Project })),
     upcoming: upcoming.map((t) => ({ ...clean(t, pm), project: t.Project })),
-    activity: feed,
+    activity: [], // the team's activity log is not shown to clients
     openRequests: await ClientRequest.count({ where: { clientId: req.user.clientId, status: 'open' } }),
     meetings: await Meeting.findAll({ where: { clientId: req.user.clientId, inviteClient: true, startAt: { [Op.gte]: new Date(Date.now() - 3600e3) } },
       attributes: ['id', 'title', 'agenda', 'startAt', 'endAt', 'link', 'location'], order: [['startAt', 'ASC']], limit: 5 }),
@@ -87,8 +85,6 @@ router.get('/projects/:id', wrap(async (req, res) => {
     include: [{ model: User, as: 'assignees', attributes: teamAttrs, through: { attributes: [] } }], order: [['position', 'ASC']] });
   const files = await Attachment.findAll({ where: { taskId: tasks.map((t) => t.id), clientVisible: true }, order: [['createdAt', 'DESC']],
     include: [{ model: User, as: 'uploader', attributes: ['id', 'name'] }] });
-  const feed = await Activity.findAll({ where: { projectId: p.id, clientVisible: true }, order: [['createdAt', 'DESC']], limit: 40,
-    include: [{ model: User, as: 'actor', attributes: ['id', 'name', 'color'] }] });
   res.json({
     id: p.id, name: p.name, code: p.code, color: p.color, status: p.status, description: p.description, startDate: p.startDate, dueDate: p.dueDate,
     owner: p.owner, team: p.members, progress: projectProgress(all),
@@ -99,7 +95,7 @@ router.get('/projects/:id', wrap(async (req, res) => {
     tasks: tasks.map((t) => clean(t, pm)),
     files: files.map((f) => ({ id: f.id, name: f.originalName, size: f.size, mime: f.mime, createdAt: f.createdAt, taskId: f.taskId, by: f.uploader?.name })),
     docs: await Document.findAll({ where: { projectId: p.id, clientVisible: true, visibility: 'workspace' }, attributes: ['id', 'title', 'icon', 'updatedAt'], order: [['updatedAt', 'DESC']] }),
-    activity: feed,
+    activity: [], // the team's activity log is not shown to clients
   });
 }));
 

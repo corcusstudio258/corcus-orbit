@@ -125,7 +125,10 @@ async function approversFor(task) {
 async function canApprove(req, task) {
   const assigneeIds = (await TaskAssignee.findAll({ where: { taskId: task.id }, raw: true })).map((a) => a.userId);
   if (assigneeIds.includes(req.user.id) && !req.can('tasks.edit_all')) return false;
-  if ((await reviewerIds(task.id)).includes(req.user.id)) return true;
+  // When a task has reviewers, they (and admins) approve it; others marking it done send it to them.
+  const reviewers = (await reviewerIds(task.id)).filter((id) => !assigneeIds.includes(id));
+  if (reviewers.includes(req.user.id)) return true;
+  if (reviewers.length) return req.can('settings.manage');
   if (req.can('tasks.approve')) return true;
   if (task.createdById === req.user.id) return true;
   if (task.projectId) {
@@ -137,10 +140,12 @@ async function canApprove(req, task) {
 
 /** Replace a task's reviewers; adding any switches on the approval step. Notifies new reviewers. */
 async function setReviewers(req, task, ids) {
-  const before = await reviewerIds(task.id);
+  const beforeRows = await TaskReviewer.findAll({ where: { taskId: task.id }, raw: true });
+  const before = beforeRows.map((r) => r.userId);
+  const auto = new Set(beforeRows.filter((r) => r.auto).map((r) => r.userId));
   const next = [...new Set((ids || []).map(Number).filter(Boolean))];
   await TaskReviewer.destroy({ where: { taskId: task.id } });
-  if (next.length) await TaskReviewer.bulkCreate(next.map((userId) => ({ taskId: task.id, userId })));
+  if (next.length) await TaskReviewer.bulkCreate(next.map((userId) => ({ taskId: task.id, userId, auto: auto.has(userId) })));
   if (next.length && !task.requiresApproval) { task.requiresApproval = true; await task.save(); }
   const added = next.filter((id) => !before.includes(id));
   if (added.length) {

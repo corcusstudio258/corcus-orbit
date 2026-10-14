@@ -3,7 +3,7 @@
 // (running `alter` on every boot makes MySQL pile up duplicate indexes).
 const { sequelize, Setting } = require('../models');
 
-const SCHEMA_VERSION = 7; // 6: task description review by clients; 7: activity.view permission
+const SCHEMA_VERSION = 8; // 6: task description review by clients; 7: activity.view permission; 8: workspace reviewers
 
 /** One-off data changes that go with a schema version. */
 const DATA_STEPS = {

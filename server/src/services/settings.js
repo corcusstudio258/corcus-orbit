@@ -70,6 +70,7 @@ const DEFAULTS = {
     clientSecret: process.env.ZOOM_CLIENT_SECRET || '',
     defaultDuration: 30,
   },
+  reviewers: { userIds: [], projectIds: [] }, // workspace reviewers; empty projectIds = every project
   onboarding: {
     allowSignup: true,
     autoApprove: false,

@@ -248,6 +248,7 @@ export function Tabs({ value, onChange, tabs }) {
 /** Searchable people picker. multiple=true → array of ids. */
 export function UserPicker({ users = [], value, onChange, multiple = true, placeholder = 'Pick people', disabled, compact }) {
   const [open, setOpen] = useState(false);
+  const [up, setUp] = useState(false); // open above the field when there isn't room below (e.g. the bulk bar at the bottom)
   const [q, setQ] = useState('');
   const ref = useRef(null);
   useEffect(() => {
@@ -263,7 +264,10 @@ export function UserPicker({ users = [], value, onChange, multiple = true, place
   const chosen = users.filter((u) => selected.includes(u.id));
   return (
     <div className="relative" ref={ref}>
-      <button type="button" disabled={disabled} onClick={() => setOpen((o) => !o)} className={clsx('input flex items-center justify-between gap-2 text-left', compact ? 'min-h-[34px] !py-1' : 'min-h-[38px]')}>
+      <button type="button" disabled={disabled} onClick={() => {
+        if (!open && ref.current) { const r = ref.current.getBoundingClientRect(); const below = window.innerHeight - r.bottom; setUp(below < 320 && r.top > below); }
+        setOpen((o) => !o);
+      }} className={clsx('input flex items-center justify-between gap-2 text-left', compact ? 'min-h-[34px] !py-1' : 'min-h-[38px]')}>
         {chosen.length ? (
           <span className="flex flex-wrap items-center gap-1.5">
             {chosen.map((u) => <span key={u.id} className="inline-flex items-center gap-1.5 rounded-full bg-sunken py-0.5 pl-0.5 pr-2 text-xs"><Avatar user={u} size={18} />{u.name.split(' ')[0]}</span>)}
@@ -272,7 +276,7 @@ export function UserPicker({ users = [], value, onChange, multiple = true, place
         <ChevronDown size={16} className="shrink-0 text-muted" />
       </button>
       {open && (
-        <div className="absolute z-40 mt-1 w-full min-w-[220px] overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-lift">
+        <div className={clsx('absolute z-50 w-full min-w-[220px] overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-lift', up ? 'bottom-full mb-1' : 'mt-1')}>
           <div className="flex items-center gap-2 border-b border-line px-2 pb-1.5 pt-1">
             <Search size={14} className="text-muted" />
             <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" className="w-full bg-transparent text-sm outline-none" />

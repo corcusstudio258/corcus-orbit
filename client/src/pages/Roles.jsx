@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
-import { Plus, ShieldCheck, Copy, Trash2, Lock, Check, Minus, Users, Eye, Layers, Table2, Search } from 'lucide-react';
+import { Plus, ShieldCheck, Copy, Trash2, Lock, Check, Minus, Users, Eye, Layers, Table2, Search, UserCheck, MessageCircle, BellRing } from 'lucide-react';
 import api from '../lib/api';
 import useFetch from '../lib/useFetch';
 import { useAuth } from '../context/AuthContext';
-import { PageHeader, PageLoader, Field, ColorPicker, Segmented, Avatar, confirm, Empty } from '../components/ui';
+import { PageHeader, PageLoader, Field, ColorPicker, Segmented, Avatar, confirm, Empty, UserPicker, Spinner } from '../components/ui';
+import { useDirectory, useProjects } from '../lib/directory';
 
 const GROUP_ORDER = ['Visibility', 'Tasks', 'Projects', 'Clients', 'People', 'Workspace'];
 
@@ -151,6 +152,65 @@ function Matrix({ roles, perms }) {
   );
 }
 
+/** Workspace reviewers: people from any role who are added as reviewer on every task (or chosen projects). */
+function Reviewers() {
+  const { data, reload } = useFetch('/roles/reviewers');
+  const people = useDirectory();
+  const projects = useProjects();
+  const [f, setF] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (data && !f) setF({ userIds: data.userIds, scope: data.projectIds.length ? 'some' : 'all', projectIds: data.projectIds }); }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!f) return <PageLoader />;
+  const save = async () => {
+    if (f.scope === 'some' && !f.projectIds.length) { toast.error('Pick at least one project, or choose every project.'); return; }
+    setBusy(true);
+    try {
+      const { data: r } = await api.put('/roles/reviewers', { userIds: f.userIds, projectIds: f.scope === 'some' ? f.projectIds : [] });
+      toast.success(r.userIds.length ? `Saved. ${r.added ? `Added to ${r.added} open task${r.added > 1 ? 's' : ''}` : 'Open tasks already up to date'}${r.removed ? `, removed from ${r.removed}` : ''}.` : `Reviewers cleared${r.removed ? ` from ${r.removed} open tasks` : ''}.`);
+      reload();
+    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  };
+  const chosen = people.filter((p) => f.userIds.includes(p.id));
+  return (
+    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <section className="panel space-y-5 p-5">
+        <div>
+          <h2 className="flex items-center gap-2 font-semibold"><UserCheck size={18} className="text-violet" />Reviewers</h2>
+          <p className="mt-1 text-sm text-muted">Pick people from any role. They keep their own role and are added as reviewer on tasks automatically, so their names show on each task.</p>
+        </div>
+        <Field label="Reviewers" hint="You can pick more than one. Anyone on the team can be a reviewer.">
+          <UserPicker users={people} value={f.userIds} onChange={(ids) => setF((s) => ({ ...s, userIds: ids }))} placeholder="Pick reviewers" />
+        </Field>
+        {chosen.length > 0 && (
+          <ul className="flex flex-wrap gap-2">{chosen.map((u) => <li key={u.id} className="inline-flex items-center gap-2 rounded-full border border-line py-1 pl-1 pr-3 text-sm"><Avatar user={u} size={22} />{u.name}<span className="text-xs text-muted">{u.Role?.name || u.designation}</span></li>)}</ul>
+        )}
+        <Field label="Review tasks in">
+          <Segmented value={f.scope} onChange={(v) => setF((s) => ({ ...s, scope: v }))} options={[{ value: 'all', label: 'Every project' }, { value: 'some', label: 'Chosen projects' }]} />
+        </Field>
+        {f.scope === 'some' && (
+          <div className="grid max-h-64 gap-1.5 overflow-y-auto rounded-xl border border-line p-2 sm:grid-cols-2">
+            {projects.filter((p) => p.status !== 'archived').map((p) => (
+              <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-sunken">
+                <input type="checkbox" className="h-4 w-4 accent-[#0F1535]" checked={f.projectIds.includes(p.id)} onChange={() => setF((s) => ({ ...s, projectIds: s.projectIds.includes(p.id) ? s.projectIds.filter((x) => x !== p.id) : [...s.projectIds, p.id] }))} />
+                <span className="h-2 w-2 rounded-full" style={{ background: p.color }} /><span className="truncate">{p.name}</span>
+              </label>
+            ))}
+          </div>
+        )}
+        <button type="button" className="btn-primary" disabled={busy} onClick={save}>{busy && <Spinner size={14} className="text-ink" />}Save and update tasks</button>
+      </section>
+      <aside className="panel space-y-3 self-start p-5 text-sm">
+        <h3 className="font-semibold">What reviewers get</h3>
+        <p className="flex gap-2"><Check size={15} className="mt-0.5 shrink-0 text-leaf" />Added to every open task in scope, and to new tasks as they are created.</p>
+        <p className="flex gap-2"><Check size={15} className="mt-0.5 shrink-0 text-leaf" />When a task is marked done it goes to review, and they approve it or send it back.</p>
+        <p className="flex gap-2"><MessageCircle size={15} className="mt-0.5 shrink-0 text-leaf" />A WhatsApp message when a task needs their review (if their number is saved and WhatsApp alerts are on).</p>
+        <p className="flex gap-2"><BellRing size={15} className="mt-0.5 shrink-0 text-leaf" />A browser notification too, once they turn it on in Settings.</p>
+        <p className="text-xs text-muted">Removing someone here takes them off open tasks they were added to automatically. Finished tasks keep their history.</p>
+      </aside>
+    </div>
+  );
+}
+
 export default function Roles() {
   const { user } = useAuth();
   const { data: roles, reload } = useFetch('/roles');
@@ -173,8 +233,8 @@ export default function Roles() {
   return (
     <div>
       <PageHeader title="Roles & access" subtitle="Who can see and do what. Levels set the reporting ladder: people manage only the roles below them."
-        actions={<><Segmented value={view} onChange={setView} options={[{ value: 'edit', label: 'Roles', icon: Layers }, { value: 'matrix', label: 'Compare', icon: Table2 }]} /><button type="button" className="btn-primary" onClick={() => newRole()}><Plus size={16} />New role</button></>} />
-      {view === 'matrix' ? <Matrix roles={roles} perms={perms} /> : (
+        actions={<><Segmented value={view} onChange={setView} options={[{ value: 'edit', label: 'Roles', icon: Layers }, { value: 'matrix', label: 'Compare', icon: Table2 }, { value: 'reviewers', label: 'Reviewers', icon: UserCheck }]} /><button type="button" className="btn-primary" onClick={() => newRole()}><Plus size={16} />New role</button></>} />
+      {view === 'reviewers' ? <Reviewers /> : view === 'matrix' ? <Matrix roles={roles} perms={perms} /> : (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
           <aside className="space-y-2">
             <p className="px-1 text-xs font-semibold text-muted">Top of the ladder</p>
@@ -194,6 +254,10 @@ export default function Roles() {
               {draft && <li><div className="flex items-center gap-3 rounded-2xl border-2 border-dashed border-ink p-3 text-sm font-semibold"><ShieldCheck size={16} />{draft.name}</div></li>}
             </ol>
             <p className="px-1 text-xs text-muted">Bottom of the ladder</p>
+            <button type="button" onClick={() => setView('reviewers')} className="mt-3 flex w-full items-center gap-3 rounded-2xl border border-dashed border-violet/50 bg-violet/5 p-3 text-left transition hover:border-violet">
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-violet text-white"><UserCheck size={14} /></span>
+              <span className="min-w-0 flex-1"><span className="block text-sm font-semibold">Reviewers</span><span className="block truncate text-xs text-muted">On top of any role. Added to tasks automatically.</span></span>
+            </button>
           </aside>
           {current ? (
             <Editor key={current.id || 'new'} role={current} perms={perms} myLevel={myLevel} isTop={isTop}

@@ -61,6 +61,7 @@ async function createTaskRecord(data, actorId, opts = {}) {
     if (!key) { t.key = `T-${t.id}`; await t.save({ transaction: tx }); }
     const assigneeIds = (data.assigneeIds || []).map(Number).filter(Boolean);
     if (assigneeIds.length) await t.setAssignees([...new Set(assigneeIds)], { transaction: tx });
+    if (t.projectId) await require('./reviewers').applyToTask(t, { transaction: tx }); // workspace reviewers
     if (Array.isArray(data.checklist) && data.checklist.length) {
       await ChecklistItem.bulkCreate(data.checklist.filter(Boolean).map((text, i) => ({ taskId: t.id, text: String(text).slice(0, 250), position: i })), { transaction: tx });
     }
