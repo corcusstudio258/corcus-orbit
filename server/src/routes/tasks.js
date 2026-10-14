@@ -24,7 +24,15 @@ const upload = multer({
     destination: UPLOAD_DIR,
     filename: (req, file, cb) => cb(null, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${path.extname(file.originalname).toLowerCase()}`),
   }),
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: 150 * 1024 * 1024 }, // videos up to 150 MB; other files are capped at 25 MB after upload
+});
+const MAX_OTHER = 25 * 1024 * 1024;
+const mb = (n) => `${Math.round(n / 1024 / 1024)} MB`;
+/** Runs multer and turns its errors into friendly JSON (e.g. a file over the limit). */
+const receive = (mw) => (req, res, next) => mw(req, res, (err) => {
+  if (!err) return next();
+  const msg = err.code === 'LIMIT_FILE_SIZE' ? 'That file is too big. Videos can be up to 150 MB, other files up to 25 MB.' : err.code === 'LIMIT_FILE_COUNT' ? 'Upload up to 10 files at a time.' : err.message;
+  return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: msg });
 });
 
 const userAttrs = ['id', 'name', 'color', 'designation', 'email'];
@@ -405,6 +413,7 @@ router.get('/:id', wrap(async (req, res) => {
     ...decorated, breadcrumb, descendants, history,
     watching: task.watchers.some((w) => w.id === req.user.id),
     canEdit: await canEditTask(req, task), canApprove: await canApprove(req, task),
+    canDeleteFiles: req.can('files.delete') || await canEditTask(req, task),
     canDelete: req.can('tasks.delete') || task.createdById === req.user.id,
   });
 }));
@@ -439,6 +448,17 @@ router.patch('/:id', wrap(async (req, res) => {
       if (JSON.stringify(task[k]) !== JSON.stringify(v)) { task[k] = v; if (k !== 'position') changes.push(k); }
     });
   if (b.dueDate !== undefined) { task.reminderSentAt = null; task.overdueNotifiedAt = null; }
+  // Client feedback on the description
+  let askBrief = false;
+  if (b.descClientVisible !== undefined && !!b.descClientVisible !== task.descClientVisible) { task.descClientVisible = !!b.descClientVisible; changes.push('descClientVisible'); }
+  if (b.descReviewStatus === 'requested') {
+    if (!task.clientVisible) return res.status(400).json({ error: 'Share this task with the client first.' });
+    if (!String(task.description || '').trim()) return res.status(400).json({ error: 'Write the description first.' });
+    task.descClientVisible = true; task.descReviewStatus = 'requested'; task.descReviewedAt = null; askBrief = true;
+  } else if (b.descReviewStatus === 'none') { task.descReviewStatus = 'none'; task.descReviewNote = null; task.descReviewedAt = null; }
+  else if (changes.includes('description') && task.descReviewStatus === 'changes' && task.clientVisible && task.descClientVisible) {
+    task.descReviewStatus = 'requested'; task.descReviewedAt = null; askBrief = true; // updated after the client's notes: ask again
+  }
   let priorityFrom = null;
   if (b.priority && PRIORITIES.includes(b.priority) && b.priority !== task.priority) { priorityFrom = task.priority; task.priority = b.priority; changes.push('priority'); }
   if (b.projectId !== undefined && !task.parentId && Number(b.projectId || 0) !== Number(task.projectId || 0)) {
@@ -446,6 +466,10 @@ router.patch('/:id', wrap(async (req, res) => {
     changes.push('project');
   }
   await task.save();
+  if (askBrief) {
+    await notifyClientIfVisible(task, `Please check the details of ${task.title}`, `${req.user.name} shared the description for your feedback.`);
+    await activity({ actorId: req.user.id, action: 'task.desc_review_request', summary: `asked the client to check the description of ${task.key}`, taskId: task.id, projectId: task.projectId, clientVisible: true });
+  }
 
   let notice = null;
   if (b.status && b.status !== task.status) ({ notice } = await applyStatus(req, task, b.status));
@@ -682,9 +706,12 @@ router.delete('/comments/:cid', wrap(async (req, res) => {
 }));
 
 // ---------- attachments ----------
-router.post('/:id/attachments', upload.array('files', 10), wrap(async (req, res) => {
+router.post('/:id/attachments', receive(upload.array('files', 10)), wrap(async (req, res) => {
   const task = await Task.findByPk(req.params.id);
-  if (!task || !(await canSeeTask(req, task))) return res.status(404).json({ error: 'Task not found.' });
+  const drop = (files) => files.forEach((f) => fs.promises.unlink(f.path).catch(() => {}));
+  if (!task || !(await canSeeTask(req, task))) { drop(req.files || []); return res.status(404).json({ error: 'Task not found.' }); }
+  const tooBig = (req.files || []).filter((f) => !/^video\//.test(f.mimetype) && f.size > MAX_OTHER);
+  if (tooBig.length) { drop(req.files); return res.status(413).json({ error: `${tooBig[0].originalname} is ${mb(tooBig[0].size)}. Images and documents can be up to 25 MB; only videos can go up to 150 MB.` }); }
   const visible = req.body.clientVisible === 'true';
   const rows = await Attachment.bulkCreate((req.files || []).map((f) => ({
     taskId: task.id, userId: req.user.id, originalName: f.originalname, fileName: f.filename, mime: f.mimetype, size: f.size,
@@ -729,10 +756,16 @@ router.delete('/attachments/:aid', wrap(async (req, res) => {
   const a = await Attachment.findByPk(req.params.aid);
   if (!a) return res.status(404).json({ error: 'File not found.' });
   const task = await Task.findByPk(a.taskId);
-  if (a.userId !== req.user.id && !(await canEditTask(req, task))) return res.status(403).json({ error: "You can't remove this file." });
+  if (a.userId !== req.user.id && !(await canEditTask(req, task)) && !req.can('files.delete')) return res.status(403).json({ error: "You can't remove this file." });
   fs.promises.unlink(path.join(UPLOAD_DIR, a.fileName)).catch(() => {});
+  // Pinned review notes on this file go with it; other comments stay.
+  const notes = await Comment.findAll({ where: { attachmentId: a.id }, attributes: ['id'], raw: true });
+  if (notes.length) await Comment.destroy({ where: { id: notes.map((n) => n.id), kind: 'review' } });
+  await Comment.update({ attachmentId: null }, { where: { attachmentId: a.id } });
   await a.destroy();
-  res.json({ ok: true });
+  await activity({ actorId: req.user.id, action: 'task.file_deleted', summary: `deleted ${a.originalName} from ${task.key}`, taskId: task.id, projectId: task.projectId, clientVisible: a.clientVisible });
+  broadcast(task);
+  res.json({ ok: true, notesRemoved: notes.length });
 }));
 
 // ---------- time tracking ----------

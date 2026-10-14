@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
-import { ImagePlus, Send, X, Check, CheckCircle2, RotateCcw, MessageSquarePlus, FileText, Film, Image as ImageIcon, Globe, Upload, ExternalLink, MousePointerClick, ChevronLeft, ChevronRight, UserCheck, Hourglass, Sparkles } from 'lucide-react';
+import { ImagePlus, Send, X, Check, CheckCircle2, RotateCcw, MessageSquarePlus, FileText, Film, Image as ImageIcon, Globe, Upload, ExternalLink, MousePointerClick, ChevronLeft, ChevronRight, UserCheck, Hourglass, Sparkles, Trash2 } from 'lucide-react';
 import { fileUrl } from '../lib/api';
 import { Avatar, Spinner, Segmented } from './ui';
 import { ago, bytes } from '../lib/format';
@@ -200,7 +200,7 @@ export function CommentThread({ comments, onPost, canShare, emptyText, people, c
  * setStatus(file, status, note) / resolve(c, bool): optional actions
  * upload(files): optional, staff only
  */
-export function ReviewBoard({ files, comments, post, setStatus, resolve, upload, isClient, shareToggle, clientReview }) {
+export function ReviewBoard({ files, comments, post, setStatus, resolve, upload, isClient, shareToggle, clientReview, onDelete, canDelete }) {
   const reviewable = files.filter((f) => isImage(f) || isVideo(f) || /pdf/.test(f.mime || ''));
   const [sel, setSel] = useState(reviewable[0]?.id || null);
   const [draft, setDraft] = useState(null); // { x, y, t }
@@ -269,6 +269,7 @@ export function ReviewBoard({ files, comments, post, setStatus, resolve, upload,
               <span className={clsx('chip', st.cls)}>{st.label}</span>
               {shareToggle?.(file)}
               <a href={fileUrl(file.id)} target="_blank" rel="noreferrer" className="btn-ghost btn-sm"><ExternalLink size={13} />Open</a>
+              {!isClient && onDelete && canDelete?.(file) && <button type="button" className="btn-ghost btn-sm text-ember hover:bg-ember/10" onClick={() => onDelete(file)} title={`Delete this ${isVideo(file) ? 'video' : 'file'}`}><Trash2 size={13} />Delete</button>}
             </div>
             {!isClient && clientReview && <ClientReviewBar file={file} clientReview={clientReview} />}
             {file.compression === 'pending' && <p className="inline-flex items-center gap-1.5 text-xs text-muted"><Spinner size={11} />Optimising this video to save space. It stays playable meanwhile.</p>}

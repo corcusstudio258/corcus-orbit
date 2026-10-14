@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import clsx from 'clsx';
 import {
   ChevronRight, Plus, Trash2, Paperclip, Play, Square, Eye, EyeOff, ShieldCheck, Check, X, Lock, Globe, Clock, GitBranch, Download,
-  Bell, BellOff, MoreHorizontal, Archive, Copy, Maximize2, Link2, Sparkles, Repeat, Hash, Ban,
+  Bell, BellOff, MoreHorizontal, Archive, Copy, Maximize2, Link2, Sparkles, Repeat, Hash, Ban, Send, UserCheck, MessageSquareWarning,
 } from 'lucide-react';
 import api, { fileUrl } from '../lib/api';
 import { useAuth, useLive } from '../context/AuthContext';
@@ -180,6 +180,33 @@ function Breakdown({ task, onDone }) {
   );
 }
 
+const DESC_REVIEW = {
+  requested: { label: 'Waiting for client feedback', cls: 'bg-cobalt/10 text-cobalt', icon: Send },
+  approved: { label: 'Client approved', cls: 'bg-leaf/15 text-leaf', icon: UserCheck },
+  changes: { label: 'Client wants changes', cls: 'bg-amber/15 text-amber', icon: MessageSquareWarning },
+};
+/** Shows whether the client can read the description and lets the team ask for their feedback on it. */
+function DescClientBar({ t, patch }) {
+  const st = DESC_REVIEW[t.descReviewStatus];
+  const shared = t.descClientVisible !== false;
+  return (
+    <div className={clsx('mt-2 rounded-xl border px-3 py-2.5', t.descReviewStatus === 'changes' ? 'border-amber/40 bg-amber/5' : 'border-line bg-sunken/40')}>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <button type="button" disabled={!t.canEdit} onClick={() => patch({ descClientVisible: !shared })} className={clsx('chip border py-1', shared ? 'border-cobalt/40 bg-cobalt/10 text-cobalt' : 'border-line text-muted')} title="Who can read this description">
+          {shared ? <><Globe size={11} />Client can read this</> : <><Lock size={11} />Team only</>}
+        </button>
+        {st && shared && <span className={clsx('chip py-1', st.cls)}><st.icon size={11} />{st.label}{t.descReviewedAt && t.descReviewStatus !== 'requested' ? `, ${ago(t.descReviewedAt)}` : ''}</span>}
+        <span className="ml-auto flex gap-1.5">
+          {t.canEdit && shared && t.descReviewStatus !== 'requested' && <button type="button" className="btn-ghost btn-sm" disabled={!String(t.description || '').trim()} onClick={() => patch({ descReviewStatus: 'requested' })}><Send size={12} />{t.descReviewStatus === 'none' ? 'Ask client for feedback' : 'Ask again'}</button>}
+          {t.canEdit && t.descReviewStatus === 'requested' && <button type="button" className="btn-ghost btn-sm" onClick={() => patch({ descReviewStatus: 'none' })}>Withdraw</button>}
+        </span>
+      </div>
+      {t.descReviewStatus === 'changes' && t.descReviewNote && shared && <p className="mt-2 whitespace-pre-wrap text-sm"><b>Client:</b> {t.descReviewNote}</p>}
+      {t.descReviewStatus === 'changes' && shared && <p className="mt-1 text-[11px] text-muted">Edit the description and the client is asked to check it again.</p>}
+    </div>
+  );
+}
+
 export default function TaskPanel({ id, onClose, inDrawer }) {
   const nav = useNavigate();
   const { can, user } = useAuth();
@@ -220,10 +247,29 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
   const toggleItem = async (c) => { await api.patch(`/tasks/checklist/${c.id}`, { done: !c.done }); load(); };
   const delItem = async (c) => { await api.delete(`/tasks/checklist/${c.id}`); load(); };
   const upload = async (files) => {
-    if (!files?.length) return;
-    const fd = new FormData(); [...files].forEach((f) => fd.append('files', f)); fd.append('clientVisible', 'false');
-    const tId = toast.loading('Uploading…');
-    try { await api.post(`/tasks/${t.id}/attachments`, fd); toast.success('Uploaded', { id: tId }); load(); } catch (e) { toast.error(e.message, { id: tId }); }
+    const list = [...(files || [])];
+    if (!list.length) return;
+    const isVid = (f) => /^video\//.test(f.type) || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(f.name);
+    const big = list.find((f) => f.size > (isVid(f) ? 150 : 25) * 1024 * 1024);
+    if (big) { toast.error(`${big.name} is ${bytes(big.size)}. Videos can be up to 150 MB, other files up to 25 MB.`); return; }
+    if (list.length > 10) { toast.error('Upload up to 10 files at a time.'); return; }
+    const fd = new FormData(); list.forEach((f) => fd.append('files', f)); fd.append('clientVisible', 'false');
+    const total = list.reduce((s, f) => s + f.size, 0);
+    const tId = toast.loading(`Uploading ${bytes(total)}…`);
+    try {
+      await api.post(`/tasks/${t.id}/attachments`, fd, {
+        timeout: 0,
+        onUploadProgress: (e) => { const pct = e.total ? Math.round((e.loaded / e.total) * 100) : 0; toast.loading(pct < 100 ? `Uploading ${pct}% of ${bytes(total)}…` : 'Saving…', { id: tId }); },
+      });
+      toast.success(list.some(isVid) ? 'Uploaded. The video is being compressed and stays playable meanwhile.' : 'Uploaded', { id: tId, duration: 5000 });
+      load();
+    } catch (e) { toast.error(e.message, { id: tId }); }
+  };
+  const canRemoveFile = (a) => t.canDeleteFiles || a.userId === user?.id;
+  const removeFile = async (a) => {
+    const notes = t.Comments.filter((c) => c.kind === 'review' && c.attachmentId === a.id).length;
+    if (!(await confirm({ title: `Delete ${a.originalName}?`, body: `The file is removed for everyone${a.clientVisible ? ', including the client' : ''}${notes ? `, along with its ${notes} review note${notes > 1 ? 's' : ''}` : ''}. This can't be undone.`, confirmLabel: 'Delete', danger: true }))) return false;
+    try { await api.delete(`/tasks/attachments/${a.id}`); toast.success('File deleted'); load(); return true; } catch (e) { toast.error(e.message); return false; }
   };
   const running = timer && timer.taskId === t.id;
   const toggleTimer = async () => {
@@ -342,6 +388,7 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
                 {ai.ready && t.canEdit && <button type="button" className="btn-ai btn-sm" onClick={aiDescribe} disabled={writing}>{writing ? <Spinner size={12} className="text-violet" /> : <Sparkles size={13} />}{t.description ? 'Rewrite brief' : 'Write brief with AI'}</button>}
               </div>
               <Editable value={t.description} onSave={(v) => patch({ description: v })} multiline markdown disabled={!t.canEdit} className="-mx-2 min-h-[56px] px-2 py-1.5 text-sm leading-relaxed" placeholder="Add the brief, links and anything the assignee needs." />
+              {t.clientVisible && <DescClientBar t={t} patch={patch} />}
             </div>
 
             <div>
@@ -403,6 +450,7 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
             setStatus={async (f, status, e) => { try { await api.patch(`/tasks/attachments/${f.id}`, { reviewStatus: status }); if (status === 'approved') celebrate('done', pointOf(e)); load(); } catch (err) { toast.error(err.message); } }}
             resolve={async (c, v) => { try { await api.patch(`/tasks/comments/${c.id}`, { resolved: v }); load(); } catch (err) { toast.error(err.message); } }}
             upload={(files) => upload(files)}
+            onDelete={(f) => (canRemoveFile(f) ? removeFile(f) : null)} canDelete={canRemoveFile}
             clientReview={{ enabled: !!t.clientVisible, request: async (f, status) => { try { await api.patch(`/tasks/attachments/${f.id}`, { clientReviewStatus: status }); toast.success(status === 'requested' ? 'Sent to the client for review' : 'Review request withdrawn'); load(); } catch (err) { toast.error(err.message); } } }}
             shareToggle={(f) => t.clientVisible && <button type="button" onClick={async () => { await api.patch(`/tasks/attachments/${f.id}`, { clientVisible: !f.clientVisible }); load(); }} className={clsx('chip border py-1', f.clientVisible ? 'border-cobalt/40 bg-cobalt/10 text-cobalt' : 'border-line text-muted')}>{f.clientVisible ? <><Globe size={11} />Client can review</> : <><Lock size={11} />Team only</>}</button>} />
         )}
@@ -438,11 +486,11 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
                     <span className="text-xs text-faint">{bytes(a.size)}</span>
                     {t.clientVisible && <button type="button" title={a.clientVisible ? 'Shared with client' : 'Team only'} onClick={async () => { await api.patch(`/tasks/attachments/${a.id}`, { clientVisible: !a.clientVisible }); load(); }} className={a.clientVisible ? 'text-cobalt' : 'text-faint'}>{a.clientVisible ? <Eye size={15} /> : <EyeOff size={15} />}</button>}
                     <a href={fileUrl(a.id)} className="text-muted hover:text-ink" aria-label="Download"><Download size={15} /></a>
-                    <button type="button" onClick={async () => { await api.delete(`/tasks/attachments/${a.id}`); load(); }} className="text-muted hover:text-ember" aria-label="Remove file"><Trash2 size={14} /></button>
+                    {canRemoveFile(a) && <button type="button" onClick={() => removeFile(a)} className="text-muted hover:text-ember" aria-label="Delete file"><Trash2 size={14} /></button>}
                   </li>
                 ))}
               </ul>
-            ) : <div className="rounded-xl border-2 border-dashed border-line py-10 text-center text-sm text-muted">Drop files here, up to 25 MB each.</div>}
+            ) : <div className="rounded-xl border-2 border-dashed border-line py-10 text-center text-sm text-muted">Drop files here. Videos up to 150 MB (compressed automatically), other files up to 25 MB.</div>}
           </div>
         )}
 

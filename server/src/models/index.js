@@ -129,6 +129,11 @@ const Task = sequelize.define('Task', {
   completedAt: DataTypes.DATE,
   reminderSentAt: DataTypes.DATE,
   overdueNotifiedAt: DataTypes.DATE,
+  // The task description (brief / caption / script) as the client sees it, and their feedback on it.
+  descClientVisible: { type: DataTypes.BOOLEAN, defaultValue: true },
+  descReviewStatus: { type: DataTypes.STRING, defaultValue: 'none' }, // none | requested | approved | changes
+  descReviewNote: DataTypes.TEXT,
+  descReviewedAt: DataTypes.DATE,
 });
 
 const TaskAssignee = sequelize.define('TaskAssignee', {});

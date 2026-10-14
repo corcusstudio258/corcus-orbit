@@ -18,7 +18,7 @@ export function PortalLayout() {
   const { data: ov, reload } = useFetch('/portal/overview');
   useLive(['task:changed', 'request:changed'], reload);
   const client = ov?.client || user.Client || {};
-  const toReview = (ov?.reviewFiles?.length || 0) + (ov?.awaitingReview?.length || 0);
+  const toReview = (ov?.reviewFiles?.length || 0) + (ov?.awaitingReview?.length || 0) + (ov?.briefs?.length || 0);
   const nav = [
     { to: '/portal', label: 'Overview', icon: LayoutDashboard, end: true },
     { to: '/portal/review', label: 'Review', icon: Eye, badge: toReview },
@@ -77,6 +77,44 @@ function ReviewButtons({ task, onDone }) {
       <textarea className="input min-h-[110px]" value={note} onChange={(e) => setNote(e.target.value)} placeholder={mode === 'approve' ? 'Anything you want to add? (optional)' : 'Tell the team what to change'} />
     </Modal>
   </>);
+}
+
+/** The task description (brief, caption, script) with the client's approve / suggest-changes buttons. */
+function BriefReview({ task: t, onDone, compact }) {
+  const [mode, setMode] = useState(null);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const send = async () => {
+    setBusy(true);
+    try {
+      await api.post(`/portal/tasks/${t.id}/description-review`, { decision: mode, note });
+      if (mode === 'approve') celebrate('done'); else toast.success('Sent to the team with your notes.');
+      setMode(null); setNote(''); onDone();
+    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  };
+  const asked = t.descReviewStatus === 'requested';
+  return (
+    <div className={clsx(compact ? '' : 'border-t border-line px-6 py-5', asked && !compact && 'bg-cobalt/[0.04]')}>
+      {!compact && (
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <h2 className="text-sm font-semibold text-muted">Details</h2>
+          {asked && <span className="chip bg-cobalt/10 text-cobalt">The team would like your feedback on this</span>}
+          {t.descReviewStatus === 'approved' && <span className="chip bg-leaf/15 text-leaf"><Check size={11} />You approved this{t.descReviewedAt ? ` ${ago(t.descReviewedAt)}` : ''}</span>}
+          {t.descReviewStatus === 'changes' && <span className="chip bg-amber/15 text-amber">You asked for changes. The team is updating it.</span>}
+        </div>
+      )}
+      {!compact && <div className="rounded-xl border border-line bg-surface p-4 text-sm leading-relaxed"><Markdown>{t.description}</Markdown></div>}
+      <div className={clsx('flex flex-wrap gap-2', !compact && 'mt-3')}>
+        <button type="button" className="btn-ghost btn-sm" onClick={() => setMode('changes')}><MessageCircle size={13} />Suggest changes</button>
+        {t.descReviewStatus !== 'approved' && <button type="button" className="btn-primary btn-sm" onClick={() => setMode('approve')}><Check size={13} />Approve</button>}
+      </div>
+      <Modal open={!!mode} onClose={() => setMode(null)} title={mode === 'approve' ? 'Approve these details' : 'What should change?'} width="max-w-lg"
+        footer={<><button type="button" className="btn-ghost" onClick={() => setMode(null)}>Cancel</button><button type="button" className="btn-primary" disabled={busy || (mode === 'changes' && !note.trim())} onClick={send}>{mode === 'approve' ? 'Approve' : 'Send to team'}</button></>}>
+        {mode === 'changes' && <div className="mb-3 max-h-48 overflow-y-auto rounded-xl bg-sunken/60 p-3 text-sm"><Markdown>{t.description}</Markdown></div>}
+        <textarea className="input min-h-[120px]" autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder={mode === 'approve' ? 'Anything to add? (optional)' : 'For example: change the second line to "Order now on kasaar.in", and use a warmer tone.'} />
+      </Modal>
+    </div>
+  );
 }
 
 export function PortalHome() {
@@ -308,11 +346,11 @@ export function PortalTask() {
           <div className="min-w-0 flex-1">
             <div className="mb-2 flex flex-wrap items-center gap-3"><StatusPill status={t.status} /><DueBadge date={t.dueDate} done={t.status === 'done'} /><span className="text-xs text-muted">{t.key}</span></div>
             <h1 className="text-2xl font-semibold">{t.title}</h1>
-            {t.description && <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-ink/85">{t.description}</p>}
             <div className="mt-4 flex items-center gap-2 text-sm text-muted"><AvatarStack users={t.assignees} />{t.assignees.length ? 'working on this' : ''}</div>
           </div>
           {t.status === 'review' && <div className="w-full sm:w-auto"><p className="mb-2 text-xs font-semibold text-violet">Waiting for your sign-off</p><ReviewButtons task={t} onDone={reload} /></div>}
         </div>
+        {t.description && <BriefReview task={t} onDone={reload} />}
         {t.subtasks.length > 0 && (
           <div className="border-t border-line px-6 py-4">
             <h2 className="mb-2 text-sm font-semibold text-muted">Steps</h2>
@@ -426,6 +464,19 @@ export function PortalReview() {
           ))}</ul>
         </section>
       )}
+      {data.briefs?.length > 0 && (
+        <section className="panel p-5">
+          <h2 className="mb-1 font-semibold">Details to check</h2>
+          <p className="mb-3 text-sm text-muted">Captions, scripts and briefs the team wants you to read before they go ahead.</p>
+          <ul className="space-y-3">{data.briefs.map((t) => (
+            <li key={t.id} className="rounded-xl border border-line p-4">
+              <div className="mb-2 flex flex-wrap items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: t.project.color }} /><Link to={`/portal/tasks/${t.id}`} className="font-medium hover:underline">{t.title}</Link><span className="text-xs text-muted">{t.project.name}</span></div>
+              <div className="mb-3 line-clamp-4 rounded-lg bg-sunken/50 p-3 text-sm"><Markdown>{t.description}</Markdown></div>
+              <BriefReview task={t} onDone={reload} compact />
+            </li>
+          ))}</ul>
+        </section>
+      )}
       {files.length ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {files.map((f) => (
@@ -435,7 +486,7 @@ export function PortalReview() {
             </Link>
           ))}
         </div>
-      ) : !data.awaitingReview.length && <div className="panel"><Empty icon={Eye} title="All caught up" body="When the team shares work for you to check, it shows up here." /></div>}
+      ) : !data.awaitingReview.length && !data.briefs?.length && <div className="panel"><Empty icon={Eye} title="All caught up" body="When the team shares work for you to check, it shows up here." /></div>}
     </div>
   );
 }

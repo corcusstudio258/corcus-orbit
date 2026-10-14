@@ -32,7 +32,8 @@ const teamAttrs = ['id', 'name', 'color', 'designation'];
 
 /** Safe shape of a task for clients. */
 const clean = (t, progress) => ({
-  id: t.id, key: t.key, title: t.title, description: t.description, status: t.status, priority: t.priority,
+  id: t.id, key: t.key, title: t.title, description: t.descClientVisible === false ? '' : t.description, status: t.status, priority: t.priority,
+  descReviewStatus: t.descClientVisible === false ? 'none' : t.descReviewStatus, descReviewNote: t.descReviewNote, descReviewedAt: t.descReviewedAt,
   dueDate: t.dueDate, startDate: t.startDate, completedAt: t.completedAt, parentId: t.parentId, depth: t.depth,
   milestoneId: t.milestoneId, requiresApproval: t.requiresApproval, progress: progress?.get(t.id) ?? 0,
   assignees: (t.assignees || []).map((a) => ({ id: a.id, name: a.name, color: a.color })), updatedAt: t.updatedAt,
@@ -49,6 +50,7 @@ router.get('/overview', wrap(async (req, res) => {
     order: [['updatedAt', 'DESC']] });
   const pm = taskProgressMap(all);
   const awaiting = visible.filter((t) => t.status === 'review');
+  const briefs = visible.filter((t) => t.descReviewStatus === 'requested' && t.descClientVisible !== false && String(t.description || '').trim());
   const upcoming = visible.filter((t) => t.status !== 'done' && t.dueDate).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate)).slice(0, 6);
   const feed = await Activity.findAll({ where: { projectId: ids, clientVisible: true }, order: [['createdAt', 'DESC']], limit: 20,
     include: [{ model: User, as: 'actor', attributes: ['id', 'name', 'color'] }, { model: Project, attributes: ['id', 'name', 'color'] }] });
@@ -66,6 +68,7 @@ router.get('/overview', wrap(async (req, res) => {
         doneTasks: visible.filter((t) => t.projectId === p.id && t.status === 'done').length };
     }),
     awaitingReview: awaiting.map((t) => ({ ...clean(t, pm), project: t.Project })),
+    briefs: briefs.map((t) => ({ ...clean(t, pm), project: t.Project })),
     upcoming: upcoming.map((t) => ({ ...clean(t, pm), project: t.Project })),
     activity: feed,
     openRequests: await ClientRequest.count({ where: { clientId: req.user.clientId, status: 'open' } }),
@@ -158,6 +161,25 @@ router.post('/files/:aid/review', wrap(async (req, res) => {
   socket.toStaff('task:changed', { id: t.id, projectId: t.projectId });
   emit('task.client_review', { task: t, decision: approve ? 'approve' : 'changes', note, file: { name: a.originalName }, actor: { id: req.user.id, name: req.user.name } });
   res.json({ ok: true, clientReviewStatus: a.clientReviewStatus });
+}));
+
+// Client approves the task description (brief, caption, script) or asks for changes to it.
+router.post('/tasks/:id/description-review', wrap(async (req, res) => {
+  const t = await visibleTask(req, req.params.id);
+  if (!t || t.descClientVisible === false || !String(t.description || '').trim()) return res.status(404).json({ error: 'Nothing to review here.' });
+  const approve = req.body.decision === 'approve';
+  const note = String(req.body.note || '').trim().slice(0, 4000);
+  if (!approve && !note) return res.status(400).json({ error: 'Tell the team what to change.' });
+  t.descReviewStatus = approve ? 'approved' : 'changes'; t.descReviewNote = note || null; t.descReviewedAt = new Date();
+  await t.save();
+  await Comment.create({ taskId: t.id, userId: req.user.id, internal: false,
+    body: approve ? `Approved the description${note ? `: ${note}` : '.'}` : `Changes to the description: ${note}` });
+  await notify({ userIds: [...t.assignees.map((a) => a.id), t.createdById, t.Project.ownerId], type: 'approval_result',
+    title: approve ? `Client approved the description of ${t.key}` : `Client wants changes to the description of ${t.key}`, body: note || t.title, link: `/tasks/${t.id}` });
+  await activity({ actorId: req.user.id, action: approve ? 'client.desc_approved' : 'client.desc_changes',
+    summary: approve ? `approved the description of ${t.key}` : `asked for changes to the description of ${t.key}`, taskId: t.id, projectId: t.projectId, clientVisible: true });
+  socket.toStaff('task:changed', { id: t.id, projectId: t.projectId });
+  res.json({ ok: true, descReviewStatus: t.descReviewStatus });
 }));
 
 // Client signs off a deliverable (task in review) or asks for changes.

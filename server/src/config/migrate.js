@@ -3,7 +3,7 @@
 // (running `alter` on every boot makes MySQL pile up duplicate indexes).
 const { sequelize, Setting } = require('../models');
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6; // 6: task description review by clients
 
 /** One-off data changes that go with a schema version. */
 const DATA_STEPS = {
@@ -51,6 +51,17 @@ DATA_STEPS[5] = async () => {
     const perms = new Set(r.permissions || []);
     if (['manager', 'team-lead'].includes(r.slug) || perms.has('dashboard.team')) perms.add('tasks.view_team');
     if (r.slug === 'manager' || perms.has('users.manage')) { perms.add('rewards.view_all'); perms.add('rewards.manage'); }
+    r.permissions = [...perms]; await r.save();
+  }
+};
+
+// Deleting files and review videos becomes its own permission.
+DATA_STEPS[6] = async () => {
+  const { Role } = require('../models');
+  for (const r of await Role.findAll()) {
+    if (r.isClientRole) continue;
+    const perms = new Set(r.permissions || []);
+    if (['admin', 'manager', 'team-lead'].includes(r.slug) || perms.has('tasks.delete') || perms.has('tasks.edit_all')) perms.add('files.delete');
     r.permissions = [...perms]; await r.save();
   }
 };
