@@ -45,9 +45,10 @@ async function taskScope(req) {
   if (req.can('tasks.view_all')) return {};
   const team = await teamIds(req);
   const assigned = await TaskAssignee.findAll({ where: { userId: team }, attributes: ['taskId'], raw: true });
-  // "See every project" lists all projects but doesn't open every task, so use membership here.
-  const member = await ProjectMember.findAll({ where: { userId: team }, attributes: ['projectId'], raw: true });
-  const owned = await Project.findAll({ where: { ownerId: team }, attributes: ['id'], raw: true });
+  // Being a project member does not open every task in it: members see the tasks they are assigned to,
+  // created or review. The project lead (owner, or a member with the lead role) sees all of the project.
+  const member = await ProjectMember.findAll({ where: { userId: req.user.id, role: 'lead' }, attributes: ['projectId'], raw: true });
+  const owned = await Project.findAll({ where: { ownerId: req.user.id }, attributes: ['id'], raw: true });
   const reviewing = await TaskReviewer.findAll({ where: { userId: req.user.id }, attributes: ['taskId'], raw: true });
   return {
     [Op.or]: [

@@ -13,7 +13,7 @@ import { STATUS, PRIORITY, ago, minutes, bytes, fmtDate } from '../lib/format';
 import { OrbitRing, Avatar, AvatarStack, StatusPill, DueBadge, PageLoader, UserPicker, Toggle, Bar, Modal, Menu, Markdown, Spinner, Tabs, confirm, DueInput } from './ui';
 import { useComposer } from './Layout';
 import { celebrate, pointOf } from './Celebrate';
-import { CommentThread, ReviewBoard, toFormData } from './Review';
+import { CommentThread, ReviewBoard, BriefThread, toFormData } from './Review';
 
 export async function changeStatus(task, status, at) {
   const { data } = await api.patch(`/tasks/${task.id}`, { status });
@@ -186,7 +186,10 @@ const DESC_REVIEW = {
   changes: { label: 'Client wants changes', cls: 'bg-amber/15 text-amber', icon: MessageSquareWarning },
 };
 /** Shows whether the client can read the description and lets the team ask for their feedback on it. */
-function DescClientBar({ t, patch }) {
+function DescClientBar({ t, patch, reload }) {
+  const [open, setOpen] = useState(false);
+  const thread = t.Comments.filter((c) => c.kind === 'brief');
+  const fromClient = thread.filter((c) => c.author?.Role?.isClientRole).length;
   const st = DESC_REVIEW[t.descReviewStatus];
   const shared = t.descClientVisible !== false;
   return (
@@ -203,6 +206,21 @@ function DescClientBar({ t, patch }) {
       </div>
       {t.descReviewStatus === 'changes' && t.descReviewNote && shared && <p className="mt-2 whitespace-pre-wrap text-sm"><b>Client:</b> {t.descReviewNote}</p>}
       {t.descReviewStatus === 'changes' && shared && <p className="mt-1 text-[11px] text-muted">Edit the description and the client is asked to check it again.</p>}
+      {shared && (
+        <div className="mt-2 border-t border-line/70 pt-2">
+          <button type="button" onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted hover:text-ink">
+            <ChevronRight size={13} className={clsx('transition', (open || fromClient > 0) && 'rotate-90')} />
+            Comments with the client on this description{thread.length ? ` (${thread.length})` : ''}
+          </button>
+          {(open || fromClient > 0) && (
+            <div className="mt-2">
+              <BriefThread comments={t.Comments} emptyText="No comments yet. The client can comment on the description from their portal."
+                placeholder="Reply to the client about the description" extra={<span className="inline-flex items-center gap-1 text-[11px] text-cobalt"><Globe size={11} />The client sees this</span>}
+                onPost={async (v) => { await api.post(`/tasks/${t.id}/comments`, toFormData(v, { kind: 'brief', internal: false })); reload(); }} />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -388,7 +406,7 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
                 {ai.ready && t.canEdit && <button type="button" className="btn-ai btn-sm" onClick={aiDescribe} disabled={writing}>{writing ? <Spinner size={12} className="text-violet" /> : <Sparkles size={13} />}{t.description ? 'Rewrite brief' : 'Write brief with AI'}</button>}
               </div>
               <Editable value={t.description} onSave={(v) => patch({ description: v })} multiline markdown disabled={!t.canEdit} className="-mx-2 min-h-[56px] px-2 py-1.5 text-sm leading-relaxed" placeholder="Add the brief, links and anything the assignee needs." />
-              {t.clientVisible && <DescClientBar t={t} patch={patch} />}
+              {t.clientVisible && <DescClientBar t={t} patch={patch} reload={load} />}
             </div>
 
             <div>

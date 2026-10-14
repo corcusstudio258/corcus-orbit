@@ -4,7 +4,7 @@ const {
   Project, Client, User, Task, Milestone, ProjectMember, Activity, TimeLog, Section, Sprint, Template, Document, TaskDependency,
 } = require('../models');
 const { requirePerm, staffOnly } = require('../middleware/auth');
-const { visibleProjectIds } = require('../services/access');
+const { visibleProjectIds, taskScope } = require('../services/access');
 const { projectProgress } = require('../services/progress');
 const { notify, activity } = require('../services/notify');
 const { computeHealth } = require('../services/health');
@@ -112,13 +112,14 @@ router.get('/:id', wrap(async (req, res) => {
   const span = p.dueDate ? Math.max(1, Math.ceil((new Date(p.dueDate) - startDay) / DAY)) : burndown.length;
   burndown.forEach((b, i) => { b.ideal = Math.max(0, Math.round(first - (first / span) * i)); });
 
-  const recent = await Activity.findAll({ where: { projectId: p.id }, order: [['createdAt', 'DESC']], limit: 40,
-    include: [{ model: User, as: 'actor', attributes: ['id', 'name', 'color'] }] });
+  const insights = req.can('activity.view');
+  const recent = insights ? await Activity.findAll({ where: { projectId: p.id }, order: [['createdAt', 'DESC']], limit: 40,
+    include: [{ model: User, as: 'actor', attributes: ['id', 'name', 'color'] }] }) : [];
   const health = await computeHealth({ projectIds: [p.id] });
   const activeSprint = await Sprint.findOne({ where: { projectId: p.id, status: 'active' } });
   const docCount = await Document.count({ where: { projectId: p.id } });
   res.json({
-    ...hideMoney(req, [summary])[0], workload: Object.values(load), minutesLogged: minutes || 0, activity: recent, burndown,
+    ...hideMoney(req, [summary])[0], workload: insights ? Object.values(load) : [], minutesLogged: minutes || 0, activity: recent, burndown, canSeeInsights: insights,
     alerts: health.alerts, activeSprint, docCount,
     priorities: ['urgent', 'high', 'medium', 'low'].map((k) => ({ priority: k, count: tasks.filter((t) => t.priority === k && t.status !== 'done').length })),
     canManage: await canManage(req, p),
@@ -443,7 +444,7 @@ router.get('/sprints/:sid/burndown', wrap(async (req, res) => {
 router.get('/:id/timeline', wrap(async (req, res) => {
   await ensureVisible(req, req.params.id);
   const tasks = await Task.findAll({
-    where: { projectId: req.params.id, archived: false, [Op.or]: [{ dueDate: { [Op.ne]: null } }, { startDate: { [Op.ne]: null } }] },
+    where: { [Op.and]: [await taskScope(req), { projectId: req.params.id, archived: false, [Op.or]: [{ dueDate: { [Op.ne]: null } }, { startDate: { [Op.ne]: null } }] }] },
     attributes: ['id', 'key', 'title', 'status', 'priority', 'startDate', 'dueDate', 'parentId', 'depth', 'sectionId', 'createdAt', 'position'],
     include: [{ model: User, as: 'assignees', attributes: ['id', 'name', 'color'], through: { attributes: [] } }],
     order: [['position', 'ASC']],

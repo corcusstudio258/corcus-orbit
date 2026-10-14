@@ -134,13 +134,15 @@ router.post('/tasks/:id/comments', imageUpload.array('images', 6), wrap(async (r
     if (!target) return res.status(400).json({ error: 'That file is not shared with you.' });
   }
   const n = (v) => (v === undefined || v === '' || v === null ? null : Number(v));
-  const c = await Comment.create({ taskId: t.id, userId: req.user.id, body, internal: false, kind: target ? 'review' : 'comment', attachmentId: target?.id || null,
+  const brief = !target && req.body.kind === 'brief';
+  if (brief && (t.descClientVisible === false || !String(t.description || '').trim())) return res.status(400).json({ error: 'There are no details to comment on.' });
+  const c = await Comment.create({ taskId: t.id, userId: req.user.id, body, internal: false, kind: target ? 'review' : brief ? 'brief' : 'comment', attachmentId: target?.id || null,
     pinX: n(req.body.pinX), pinY: n(req.body.pinY), pinTime: n(req.body.pinTime) });
   if (files.length) await media.compressAll(await Attachment.bulkCreate(files.map((f) => ({ taskId: t.id, commentId: c.id, userId: req.user.id, originalName: f.originalname, fileName: f.filename, mime: f.mimetype, size: f.size, clientVisible: true, forReview: false }))), UPLOAD_DIR);
   if (target && target.clientReviewStatus !== 'changes') { target.clientReviewStatus = 'changes'; target.clientReviewedAt = new Date(); await target.save(); }
   emit('task.client_comment', { task: t, actor: { id: req.user.id, name: req.user.name } });
   await notify({ userIds: [...t.assignees.map((a) => a.id), t.createdById, t.Project.ownerId], type: 'task_comment',
-    title: `Client message on ${t.key}`, body: `${req.user.name}: ${body.slice(0, 200)}`, link: `/tasks/${t.id}` });
+    title: brief ? `Client comment on the description of ${t.key}` : `Client message on ${t.key}`, body: `${req.user.name}: ${body.slice(0, 200)}`, link: `/tasks/${t.id}` });
   await activity({ actorId: req.user.id, action: 'client.comment', summary: `left a message on ${t.key}`, taskId: t.id, projectId: t.projectId, clientVisible: true });
   socket.toStaff('task:changed', { id: t.id, projectId: t.projectId });
   res.status(201).json(await Comment.findByPk(c.id, { include: commentInclude }));
@@ -172,8 +174,8 @@ router.post('/tasks/:id/description-review', wrap(async (req, res) => {
   if (!approve && !note) return res.status(400).json({ error: 'Tell the team what to change.' });
   t.descReviewStatus = approve ? 'approved' : 'changes'; t.descReviewNote = note || null; t.descReviewedAt = new Date();
   await t.save();
-  await Comment.create({ taskId: t.id, userId: req.user.id, internal: false,
-    body: approve ? `Approved the description${note ? `: ${note}` : '.'}` : `Changes to the description: ${note}` });
+  await Comment.create({ taskId: t.id, userId: req.user.id, internal: false, kind: 'brief',
+    body: approve ? `Approved the description${note ? `: ${note}` : '.'}` : `Requested changes: ${note}` });
   await notify({ userIds: [...t.assignees.map((a) => a.id), t.createdById, t.Project.ownerId], type: 'approval_result',
     title: approve ? `Client approved the description of ${t.key}` : `Client wants changes to the description of ${t.key}`, body: note || t.title, link: `/tasks/${t.id}` });
   await activity({ actorId: req.user.id, action: approve ? 'client.desc_approved' : 'client.desc_changes',

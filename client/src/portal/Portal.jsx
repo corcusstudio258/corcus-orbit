@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 import { LogOut, Check, X, Download, Paperclip, Inbox, Plus, Flag, ChevronRight, MessageCircle, Video, FileText, ArrowLeft, LayoutDashboard, Eye, Building2, Film, ImagePlus, FileUp } from 'lucide-react';
-import { ReviewBoard, CommentThread, toFormData } from '../components/Review';
+import { ReviewBoard, CommentThread, BriefThread, toFormData } from '../components/Review';
 import OnboardingFields from '../components/OnboardingFields';
 import { celebrate, pointOf } from '../components/Celebrate';
 import { format } from 'date-fns';
@@ -80,7 +80,7 @@ function ReviewButtons({ task, onDone }) {
 }
 
 /** The task description (brief, caption, script) with the client's approve / suggest-changes buttons. */
-function BriefReview({ task: t, onDone, compact }) {
+function BriefReview({ task: t, onDone, compact, comments }) {
   const [mode, setMode] = useState(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -104,10 +104,19 @@ function BriefReview({ task: t, onDone, compact }) {
         </div>
       )}
       {!compact && <div className="rounded-xl border border-line bg-surface p-4 text-sm leading-relaxed"><Markdown>{t.description}</Markdown></div>}
-      <div className={clsx('flex flex-wrap gap-2', !compact && 'mt-3')}>
-        <button type="button" className="btn-ghost btn-sm" onClick={() => setMode('changes')}><MessageCircle size={13} />Suggest changes</button>
+      <div className={clsx('flex flex-wrap items-center gap-2', !compact && 'mt-3')}>
         {t.descReviewStatus !== 'approved' && <button type="button" className="btn-primary btn-sm" onClick={() => setMode('approve')}><Check size={13} />Approve</button>}
+        <button type="button" className="btn-ghost btn-sm" onClick={() => setMode('changes')}><X size={13} />Request changes</button>
+        {!compact && <span className="text-xs text-muted">or leave a comment below</span>}
       </div>
+      {!compact && comments && (
+        <div className="mt-4 rounded-xl border border-line bg-surface/60 p-4">
+          <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold"><MessageCircle size={14} />Comments on these details</h3>
+          <BriefThread comments={comments} emptyText="Have a suggestion or a question about the text? Write it here. The people working on this task see it right away."
+            placeholder="Suggest a change or ask a question about the details"
+            onPost={async (v) => { await api.post(`/portal/tasks/${t.id}/comments`, toFormData(v, { kind: 'brief' })); toast.success('Sent to the team'); onDone(); }} />
+        </div>
+      )}
       <Modal open={!!mode} onClose={() => setMode(null)} title={mode === 'approve' ? 'Approve these details' : 'What should change?'} width="max-w-lg"
         footer={<><button type="button" className="btn-ghost" onClick={() => setMode(null)}>Cancel</button><button type="button" className="btn-primary" disabled={busy || (mode === 'changes' && !note.trim())} onClick={send}>{mode === 'approve' ? 'Approve' : 'Send to team'}</button></>}>
         {mode === 'changes' && <div className="mb-3 max-h-48 overflow-y-auto rounded-xl bg-sunken/60 p-3 text-sm"><Markdown>{t.description}</Markdown></div>}
@@ -350,7 +359,7 @@ export function PortalTask() {
           </div>
           {t.status === 'review' && <div className="w-full sm:w-auto"><p className="mb-2 text-xs font-semibold text-violet">Waiting for your sign-off</p><ReviewButtons task={t} onDone={reload} /></div>}
         </div>
-        {t.description && <BriefReview task={t} onDone={reload} />}
+        {t.description && <BriefReview task={t} onDone={reload} comments={t.comments} />}
         {t.subtasks.length > 0 && (
           <div className="border-t border-line px-6 py-4">
             <h2 className="mb-2 text-sm font-semibold text-muted">Steps</h2>
@@ -371,7 +380,7 @@ export function PortalTask() {
               try { await api.post(`/portal/files/${f.id}/review`, { decision: status === 'approved' ? 'approve' : 'changes', note: status === 'changes' ? 'Please see my pinned comments.' : '' }); if (status === 'approved') celebrate('done', pointOf(e)); else toast.success('Sent to the team'); reload(); } catch (err) { toast.error(err.message); }
             }} />
         ) : (
-          <CommentThread comments={t.comments} onPost={async (v) => post(toFormData(v))} emptyText="Ask a question or share feedback. You can paste screenshots too. The team gets it right away." />
+          <CommentThread comments={t.comments.filter((c) => c.kind !== 'brief')} onPost={async (v) => post(toFormData(v))} emptyText="Ask a question or share feedback. You can paste screenshots too. The team gets it right away." />
         )}
         {otherFiles.length > 0 && (
           <div className="mt-6 border-t border-line pt-4">

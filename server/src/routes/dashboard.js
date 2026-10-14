@@ -102,7 +102,7 @@ router.get('/', async (req, res) => {
     const meetingsToday = await Meeting.findAll({ where: { startAt: { [Op.between]: [today0, today1] } }, include: [{ model: User, as: 'attendees', attributes: ['id'], through: { attributes: [] } }], order: [['startAt', 'ASC']] });
     const myMeetings = meetingsToday.filter((m) => m.organizerId === me || m.attendees.some((a) => a.id === me)).map((m) => ({ id: m.id, title: m.title, startAt: m.startAt, endAt: m.endAt, link: m.link }));
 
-    const actWhere = pids ? { [Op.or]: [{ projectId: pids }, { actorId: me }] } : {};
+    const actWhere = !req.can('activity.view') ? { actorId: me } : pids ? { [Op.or]: [{ projectId: pids }, { actorId: me }] } : {};
     const recent = await Activity.findAll({ where: actWhere, order: [['createdAt', 'DESC']], limit: 25,
       include: [{ model: User, as: 'actor', attributes: ['id', 'name', 'color'] }, { model: Project, attributes: ['id', 'name', 'color'] }] });
 

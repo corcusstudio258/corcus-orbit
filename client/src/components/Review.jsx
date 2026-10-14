@@ -163,6 +163,7 @@ export function CommentItem({ c, onOpenImage, onJump, label, actions }) {
           {label}
           <span className="font-semibold">{c.author?.name}</span>
           {fromClient && <span className="chip bg-amber/15 text-amber">Client</span>}
+          {c.kind === 'brief' && <span className="chip bg-violet/10 text-violet"><FileText size={10} />On the description</span>}
           {!fromClient && c.internal === false && <span className="chip bg-cobalt/10 text-cobalt"><Globe size={10} />Shared with client</span>}
           {c.pinTime != null && <button type="button" onClick={() => onJump?.(c)} className="chip bg-night text-white hover:bg-night-2">{clock(c.pinTime)}</button>}
           {c.resolved && <span className="chip bg-leaf/10 text-leaf"><Check size={10} />Resolved</span>}
@@ -187,6 +188,20 @@ export function CommentThread({ comments, onPost, canShare, emptyText, people, c
         {!list.length && <li className="py-2 text-sm text-muted">{emptyText || 'No comments yet.'}</li>}
       </ul>
       <div className="mt-4"><Composer onSubmit={onPost} placeholder={canShare ? 'Write an update. Type @ to mention, paste or drop images.' : 'Write a message. You can paste or drop images.'} extra={composerExtra} people={people} onMention={onMention} /></div>
+      <Lightbox images={box.images} index={box.index} onClose={() => setBox({ images: [], index: null })} />
+    </div>
+  );
+}
+
+/** Comments on the task description only (kind 'brief'), shared between the client and the team. */
+export function BriefThread({ comments, onPost, placeholder, emptyText, extra }) {
+  const [box, setBox] = useState({ images: [], index: null });
+  const list = comments.filter((c) => c.kind === 'brief');
+  return (
+    <div>
+      {list.length > 0 ? <ul className="space-y-3">{list.map((c) => <CommentItem key={c.id} c={{ ...c, kind: 'comment' }} onOpenImage={(images, index) => setBox({ images, index })} />)}</ul>
+        : emptyText && <p className="text-sm text-muted">{emptyText}</p>}
+      {onPost && <div className="mt-3"><Composer compact onSubmit={onPost} placeholder={placeholder || 'Write a comment'} extra={extra} submitLabel="Send" /></div>}
       <Lightbox images={box.images} index={box.index} onClose={() => setBox({ images: [], index: null })} />
     </div>
   );

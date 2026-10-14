@@ -127,7 +127,7 @@ function Overview({ p, reload }) {
           </Panel>
         )}
 
-        <Panel title="Team load" icon={Users} subtitle="Open tasks in this project">
+        {p.canSeeInsights && <Panel title="Team load" icon={Users} subtitle="Open tasks in this project">
           {p.workload.length ? (
             <ul className="space-y-3">
               {p.workload.sort((a, b) => b.open - a.open).map((w) => (
@@ -142,9 +142,9 @@ function Overview({ p, reload }) {
               ))}
             </ul>
           ) : <p className="text-sm text-muted">Nobody has open work here.</p>}
-        </Panel>
+        </Panel>}
 
-        <Panel title="Recent activity" icon={History}>{p.activity.length ? <ActivityFeed items={p.activity.slice(0, 8)} compact /> : <p className="text-sm text-muted">Quiet so far.</p>}</Panel>
+        {p.canSeeInsights && <Panel title="Recent activity" icon={History}>{p.activity.length ? <ActivityFeed items={p.activity.slice(0, 8)} compact /> : <p className="text-sm text-muted">Quiet so far.</p>}</Panel>}
       </div>
     </div>
   );
@@ -366,8 +366,8 @@ export default function ProjectDetail() {
         { value: 'calendar', label: 'Calendar', icon: CalendarDays },
         { value: 'sprints', label: 'Sprints', icon: Zap },
         { value: 'docs', label: 'Docs', icon: FileText, count: p.docCount || null },
-        { value: 'activity', label: 'Activity', icon: History },
-      ]} /></div>
+        p.canSeeInsights && { value: 'activity', label: 'Activity', icon: History },
+      ].filter(Boolean)} /></div>
 
       {tab === 'overview' && <Overview p={p} reload={reload} />}
       {tab === 'list' && <TaskExplorer fixed={{ projectId: p.id }} storageKey={`p-list-${p.id}`} defaultView="list" defaultGroup={p.Sections.length ? 'section' : 'status'} composeDefaults={{ projectId: p.id }} sections={p.Sections} onAddSection={addSection} />}
@@ -376,7 +376,7 @@ export default function ProjectDetail() {
       {tab === 'calendar' && <ProjectCalendar p={p} />}
       {tab === 'sprints' && <Sprints p={p} reload={reload} />}
       {tab === 'docs' && <ProjectDocs p={p} />}
-      {tab === 'activity' && <div className="panel p-5">{p.activity.length ? <ActivityFeed items={p.activity} /> : <Empty icon={History} title="No activity yet" />}</div>}
+      {tab === 'activity' && p.canSeeInsights && <div className="panel p-5">{p.activity.length ? <ActivityFeed items={p.activity} /> : <Empty icon={History} title="No activity yet" />}</div>}
 
       <ProjectForm open={edit} onClose={() => setEdit(false)} project={p} onSaved={() => { setEdit(false); reload(); refreshProjects(); }} />
       <ProjectBulkTasks open={bulk} onClose={() => setBulk(false)} project={p} onDone={reload} />

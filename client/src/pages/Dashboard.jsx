@@ -78,7 +78,7 @@ function Standup() {
 const SEV = { critical: { color: '#E5484D', label: 'Critical' }, warning: { color: '#F08C00', label: 'Warning' }, info: { color: '#3D5AFE', label: 'Info' } };
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const { data, loading, reload } = useFetch('/dashboard');
   const nav = useNavigate();
   const compose = useComposer();
@@ -229,7 +229,7 @@ export default function Dashboard() {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
-        <Panel className="lg:col-span-2" title="Recent activity" action={<Link to="/activity" className="link text-xs">See all</Link>}><ActivityFeed items={data.activity.slice(0, 10)} /></Panel>
+        <Panel className="lg:col-span-2" title={can('activity.view') ? 'Recent activity' : 'Your recent activity'} action={<Link to="/activity" className="link text-xs">See all</Link>}><ActivityFeed items={data.activity.slice(0, 10)} /></Panel>
         <div className="space-y-5">
           <Panel title="Quick actions">
             <div className="grid grid-cols-2 gap-2">

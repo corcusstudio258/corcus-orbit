@@ -59,7 +59,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const start = (await call(ankit, 'PATCH', `/tasks/${meta.id}`, { status: 'in_progress' })).data;
   ok(/waiting on/i.test(start.notice || ''), 'warning when starting blocked work', start.notice);
   await call(admin, 'POST', `/tasks/${copy.id}/watch`, {});
-  await call(rahul, 'POST', `/tasks/${copy.id}/comments`, { body: 'Copy draft is in the doc' });
+  // Only people on the task can comment now (project members don't see every task), so the assignee writes it.
+  const copyOwner = await login(copy.assignees[0].email);
+  await call(copyOwner, 'POST', `/tasks/${copy.id}/comments`, { body: 'Copy draft is in the doc' });
   await call(admin, 'PATCH', `/tasks/${copy.id}`, { status: 'done' });
   await wait(600);
   const nA = (await call(ankit, 'GET', '/notifications')).data.items;

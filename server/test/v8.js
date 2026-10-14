@@ -45,7 +45,7 @@ const form = (buf, name, type) => { const f = new FormData(); f.append('files', 
   const ch = (await call(client, 'POST', `/portal/tasks/${t.id}/description-review`, { decision: 'changes', note: 'Say "festive gift box" instead' })).data;
   ok(ch.descReviewStatus === 'changes', 'client asks for changes');
   let d = (await call(mgr, 'GET', `/tasks/${t.id}`)).data;
-  ok(d.descReviewStatus === 'changes' && d.descReviewNote.includes('festive') && d.Comments.some((c) => c.body.includes('Changes to the description')), 'team sees the note on the task and in comments');
+  ok(d.descReviewStatus === 'changes' && d.descReviewNote.includes('festive') && d.Comments.some((c) => c.kind === 'brief' && c.body.includes('Requested changes')), 'team sees the note on the task and in comments');
   const mn = (await call(mgr, 'GET', '/notifications')).data;
   ok(JSON.stringify(mn).includes('wants changes to the description'), 'team is notified');
   await call(mgr, 'PATCH', `/tasks/${t.id}`, { description: 'Caption: Festive gift box of thekua. Order on kasaar.in' });
@@ -80,7 +80,7 @@ const form = (buf, name, type) => { const f = new FormData(); f.append('files', 
   await call(admin, 'POST', '/users', { name: 'Exec Files', email: 'exec.files@corcus.in', password: 'Exec#2026x', roleId: exec.id });
   const et = await login('exec.files@corcus.in', 'Exec#2026x');
   await call(admin, 'PATCH', `/projects/${KAS.id}`, { memberIds: [...new Set([...(await call(admin, 'GET', `/projects/${KAS.id}`)).data.members.map((m) => m.id), (await call(et, 'GET', '/auth/me')).data.user?.id || (await call(et, 'GET', '/auth/me')).data.id])] });
-  ok((await call(et, 'GET', `/tasks/${t.id}`)).data.canDeleteFiles === false, 'an executive who is not on the task cannot delete files');
+  ok((await call(et, 'GET', `/tasks/${t.id}`)).status === 404, 'an executive who is not on the task cannot even open it');
   ok((await call(et, 'DELETE', `/tasks/attachments/${file.id}`)).status === 403, 'and the server refuses it');
   ok((await call(mgr, 'GET', `/tasks/${t.id}`)).data.canDeleteFiles === true, 'the manager can');
   const del = await call(mgr, 'DELETE', `/tasks/attachments/${file.id}`);

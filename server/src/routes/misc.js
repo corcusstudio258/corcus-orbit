@@ -29,9 +29,10 @@ notifications.post('/read', async (req, res) => {
 const activity = express.Router();
 activity.get('/', staffOnly, async (req, res) => {
   const pids = await visibleProjectIds(req);
-  const where = pids ? { [Op.or]: [{ projectId: pids }, { actorId: req.user.id }] } : {};
+  // Without "See team load and activity", people only see their own actions.
+  const where = !req.can('activity.view') ? { actorId: req.user.id } : pids ? { [Op.or]: [{ projectId: pids }, { actorId: req.user.id }] } : {};
   if (req.query.projectId) where.projectId = req.query.projectId;
-  if (req.query.userId) where.actorId = req.query.userId;
+  if (req.query.userId && req.can('activity.view')) where.actorId = req.query.userId;
   const before = req.query.before ? { createdAt: { [Op.lt]: new Date(req.query.before) } } : {};
   res.json(await Activity.findAll({ where: { ...where, ...before }, order: [['createdAt', 'DESC']], limit: 60,
     include: [{ model: User, as: 'actor', attributes: ['id', 'name', 'color'] }, { model: Project, attributes: ['id', 'name', 'color'] },

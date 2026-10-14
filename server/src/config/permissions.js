@@ -16,6 +16,7 @@ const PERMISSIONS = [
 
   { key: 'projects.manage', group: 'Projects', label: 'Manage projects', hint: 'Create, edit, archive projects and change their pipeline.' },
   { key: 'templates.manage', group: 'Projects', label: 'Manage templates', hint: 'Save and delete project templates.' },
+  { key: 'activity.view', group: 'Projects', label: 'See team load and activity', hint: 'Team load and recent activity on project pages, the dashboard and the activity log. Without it, people only see their own actions.' },
   { key: 'automations.manage', group: 'Projects', label: 'Manage automations', hint: 'Create the “when this happens, do that” rules.' },
 
   { key: 'clients.view', group: 'Clients', label: 'See clients', hint: 'Client list, client profiles and their requests.' },
@@ -40,12 +41,12 @@ const DEFAULT_ROLES = [
     description: 'Full control of the workspace' },
   { name: 'Manager', slug: 'manager', level: 2, color: '#3D5AFE', isSystem: false,
     description: 'Runs projects and their teams',
-    permissions: ['dashboard.team', 'tasks.create', 'tasks.view_all', 'tasks.edit_all', 'tasks.assign', 'tasks.delete', 'files.delete',
+    permissions: ['dashboard.team', 'tasks.create', 'tasks.view_all', 'tasks.edit_all', 'tasks.assign', 'tasks.delete', 'files.delete', 'activity.view',
       'tasks.approve', 'tasks.view_team', 'projects.view_all', 'projects.manage', 'projects.budget', 'templates.manage', 'automations.manage',
       'clients.view', 'users.view', 'users.invite', 'attendance.manage', 'rewards.view_all', 'rewards.manage', 'ai.use'] },
   { name: 'Team Lead', slug: 'team-lead', level: 3, color: '#1FA971', isSystem: false,
     description: 'Leads a small squad and reviews their work',
-    permissions: ['tasks.create', 'tasks.assign', 'tasks.approve', 'tasks.view_team', 'files.delete', 'clients.view', 'users.view', 'ai.use'] },
+    permissions: ['tasks.create', 'tasks.assign', 'tasks.approve', 'tasks.view_team', 'files.delete', 'activity.view', 'clients.view', 'users.view', 'ai.use'] },
   { name: 'Executive', slug: 'executive', level: 4, color: '#C76A00', isSystem: false,
     description: 'Works on assigned tasks',
     permissions: ['tasks.create', 'users.view', 'ai.use'] },

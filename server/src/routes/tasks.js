@@ -655,9 +655,10 @@ router.post('/:id/comments', commentUpload.array('images', 6), wrap(async (req, 
     if (!target) return res.status(400).json({ error: 'That file is not on this task.' });
   }
   const pinX = num(req.body.pinX); const pinY = num(req.body.pinY); const pinTime = num(req.body.pinTime);
+  const brief = !target && req.body.kind === 'brief'; // reply in the description thread the client sees
   const c = await Comment.create({
-    taskId: task.id, userId: req.user.id, body: body || '', internal: task.clientVisible ? internal : true,
-    kind: target ? 'review' : 'comment', attachmentId: target?.id || null,
+    taskId: task.id, userId: req.user.id, body: body || '', internal: brief ? !(task.clientVisible && task.descClientVisible !== false) : task.clientVisible ? internal : true,
+    kind: target ? 'review' : brief ? 'brief' : 'comment', attachmentId: target?.id || null,
     pinX: pinX != null ? Math.max(0, Math.min(1, pinX)) : null, pinY: pinY != null ? Math.max(0, Math.min(1, pinY)) : null, pinTime,
   });
   if (files.length) {
