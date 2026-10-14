@@ -469,7 +469,15 @@ export default function TaskPanel({ id, onClose, inDrawer }) {
             resolve={async (c, v) => { try { await api.patch(`/tasks/comments/${c.id}`, { resolved: v }); load(); } catch (err) { toast.error(err.message); } }}
             upload={(files) => upload(files)}
             onDelete={(f) => (canRemoveFile(f) ? removeFile(f) : null)} canDelete={canRemoveFile}
-            clientReview={{ enabled: !!t.clientVisible, request: async (f, status) => { try { await api.patch(`/tasks/attachments/${f.id}`, { clientReviewStatus: status }); toast.success(status === 'requested' ? 'Sent to the client for review' : 'Review request withdrawn'); load(); } catch (err) { toast.error(err.message); } } }}
+            clientReview={{ enabled: !!t.clientVisible, hasClient: !!t.Project?.clientId, canShare: t.canEdit,
+              shareAndAsk: async (f) => {
+                try {
+                  await api.patch(`/tasks/${t.id}`, { clientVisible: true });
+                  await api.patch(`/tasks/attachments/${f.id}`, { clientReviewStatus: 'requested' });
+                  toast.success('Task shared with the client and sent for their review'); load();
+                } catch (err) { toast.error(err.message); }
+              },
+              request: async (f, status) => { try { await api.patch(`/tasks/attachments/${f.id}`, { clientReviewStatus: status }); toast.success(status === 'requested' ? 'Sent to the client for review' : 'Review request withdrawn'); load(); } catch (err) { toast.error(err.message); } } }}
             shareToggle={(f) => t.clientVisible && <button type="button" onClick={async () => { await api.patch(`/tasks/attachments/${f.id}`, { clientVisible: !f.clientVisible }); load(); }} className={clsx('chip border py-1', f.clientVisible ? 'border-cobalt/40 bg-cobalt/10 text-cobalt' : 'border-line text-muted')}>{f.clientVisible ? <><Globe size={11} />Client can review</> : <><Lock size={11} />Team only</>}</button>} />
         )}
 

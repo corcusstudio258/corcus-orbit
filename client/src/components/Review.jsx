@@ -32,7 +32,11 @@ function ClientReviewBar({ file, clientReview }) {
       {st ? <span className={clsx('chip', st.cls)}><st.Icon size={11} />{st.label}{file.clientReviewedAt && file.clientReviewStatus !== 'requested' ? ` · ${ago(file.clientReviewedAt)}` : ''}</span>
         : <span className="text-faint">Not asked yet</span>}
       <div className="ml-auto flex gap-2">
-        {!clientReview.enabled ? <span className="text-faint">Share the task with the client to ask for their review.</span>
+        {!clientReview.enabled ? (
+          !clientReview.hasClient ? <span className="text-faint">This project has no client yet. Link a client in Edit project to ask for their review.</span>
+            : clientReview.canShare ? <button type="button" className="btn-ink btn-sm" disabled={busy} onClick={async () => { setBusy(true); try { await clientReview.shareAndAsk(file); } finally { setBusy(false); } }}>{busy ? <Spinner size={12} /> : <UserCheck size={13} />}Share with client and ask to review</button>
+              : <span className="text-faint">Ask someone who can edit this task to share it with the client.</span>
+        )
           : file.clientReviewStatus === 'requested' ? <button type="button" className="btn-ghost btn-sm" disabled={busy} onClick={() => run('none')}>Withdraw</button>
             : <button type="button" className="btn-ink btn-sm" disabled={busy} onClick={() => run('requested')}>{busy ? <Spinner size={12} /> : <UserCheck size={13} />}{st ? 'Ask client again' : 'Ask client to review'}</button>}
       </div>
